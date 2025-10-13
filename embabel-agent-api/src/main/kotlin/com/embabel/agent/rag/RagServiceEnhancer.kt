@@ -18,10 +18,16 @@ package com.embabel.agent.rag
 import com.embabel.agent.api.common.OperationContext
 import com.embabel.agent.event.RagEventListener
 
+/**
+ * Given a RAG service, create an enhanced RAG service for use in a particular operation.
+ */
 interface RagServiceEnhancer {
 
     /**
-     * Create a new Rag Service for use in this operation
+     * Create a new Rag Service for use in a given operation
+     * @param operationContext context of the operation for which the RAG service is being created.
+     * Having the context allows for running LLM operations such as summarization
+     * and considering the current AgentProcess.
      */
     fun create(
         operationContext: OperationContext,

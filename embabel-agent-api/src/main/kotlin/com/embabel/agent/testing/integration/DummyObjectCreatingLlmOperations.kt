@@ -53,7 +53,7 @@ open class DummyObjectCreatingLlmOperations(
     }
 
     override fun <O> createObjectIfPossible(
-        prompt: String,
+        messages: List<Message>,
         interaction: LlmInteraction,
         outputClass: Class<O>,
         agentProcess: AgentProcess,

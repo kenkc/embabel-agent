@@ -33,19 +33,34 @@ import com.embabel.chat.support.InMemoryConversation
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.util.loggerFor
 
-
 /**
  * Configuration for the chat session
- * @param confirmGoals Whether to confirm goals with the user before proceeding
- * @param bindConversation Whether to bind the conversation to the chat session
  */
-data class ChatConfig(
-    val confirmGoals: Boolean = true,
-    val bindConversation: Boolean = false,
-    val multiGoal: Boolean = false,
-    val model: String = OpenAiModels.GPT_41_MINI,
-    val temperature: Double? = null,
-) {
+class ChatConfig {
+    /**
+     * Whether to confirm goals with the user before proceeding
+     */
+    var confirmGoals: Boolean = true
+
+    /**
+     * Whether to bind the conversation to the chat session
+     */
+    var bindConversation: Boolean = false
+
+    /**
+     * Whether to allow multiple goals to be selected and accomplished.
+     */
+    var multiGoal: Boolean = false
+
+    /**
+     * Model used in the chat session
+     */
+    var model: String = OpenAiModels.GPT_41_MINI
+
+    /**
+     * The temperature to use when generating responses
+     */
+    var temperature: Double? = null
 
     /**
      * Options for the LLM used in the chat session

@@ -122,9 +122,13 @@ open class CompressionConfig(
 /**
  * Hypothetical Document Embedding
  * Used to generate a synthetic document for embedding from the query.
+ * @param context the context to use for generating the synthetic document:
  * @param wordCount the number of words to generate for the synthetic document (default is 50)
+ * what the answer should relate to.
+ * For example: "The history of the Roman Empire."
  */
 data class HyDE @JvmOverloads constructor(
+    val context: String,
     val wordCount: Int = 50,
 )
 

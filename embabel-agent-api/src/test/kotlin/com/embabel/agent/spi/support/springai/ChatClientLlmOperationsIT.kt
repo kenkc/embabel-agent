@@ -19,6 +19,7 @@ import com.embabel.agent.api.dsl.evenMoreEvilWizard
 import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.spi.LlmInteraction
 import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentPlatform
+import com.embabel.chat.UserMessage
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.example.simple.horoscope.kotlin.StarPerson
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -44,10 +45,14 @@ internal class ChatClientLlmOperationsIT {
             val agentProcess =
                 dummyAgentPlatform().createAgentProcess(evenMoreEvilWizard(), ProcessOptions(), emptyMap())
             val r = clientLlmOperations.createObjectIfPossible(
-                """
+                messages = listOf(
+                    UserMessage(
+                        """
                 Create a person from this user input, extracting their name and star sign:
                 You are a wizard who can tell me about the stars. Bob is a Cancer.
-                """.trimIndent(),
+                """.trimIndent()
+                    )
+                ),
                 LlmInteraction.using(llm),
                 StarPerson::class.java,
                 agentProcess,
@@ -64,10 +69,14 @@ internal class ChatClientLlmOperationsIT {
             val agentProcess =
                 dummyAgentPlatform().createAgentProcess(evenMoreEvilWizard(), ProcessOptions(), emptyMap())
             val r = clientLlmOperations.createObjectIfPossible(
-                """
+                messages = listOf(
+                    UserMessage(
+                        """
                 Create a person from this user input, extracting their name and star sign:
                 You are a wizard who can tell me about the stars.
-                """.trimIndent(),
+                """.trimIndent()
+                    )
+                ),
                 LlmInteraction.using(llm),
                 StarPerson::class.java,
                 agentProcess,

@@ -27,6 +27,13 @@ import org.springframework.ai.tool.ToolCallback
 
 /**
  * ToolGroup backed by MCP
+ * @param description Description of the tool group
+ * @param provider Name of the provider of the tool group
+ * @param name Name of the tool group
+ * @param permissions Permissions the tools requires
+ * @param clients List of MCP clients to use to load tools
+ * @param filter predicate that returns true to include a tool
+ *
  */
 class McpToolGroup(
     description: ToolGroupDescription,

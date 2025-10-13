@@ -15,14 +15,43 @@
  */
 package com.embabel.agent.prompt.persona
 
+import com.embabel.agent.api.common.Ai
+import com.embabel.agent.api.common.OperationContext
+import com.embabel.agent.api.common.PromptRunner
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.prompt.PromptContributor
+import org.springframework.validation.annotation.Validated
 
 /**
  * An Actor plays a role: Convenient way to combine a PromptContributor
- * with an LLM.
+ * with an LLM and tools.
+ * Open to allow subclasses to add tools via @Tool methods
  */
-data class Actor<T : PromptContributor>(
+@Validated
+open class Actor<T : PromptContributor> @JvmOverloads constructor(
     val persona: T,
     val llm: LlmOptions,
-) : PromptContributor by persona
+    val toolGroups: Set<String> = emptySet(),
+) : PromptContributor by persona {
+
+    /**
+     * Return a PromptRunner configured with this Actor's persona, LLM, and tools.
+     * The caller can continue to customize this PromptRunner before using it
+     * to create objects or generate text.
+     */
+    fun promptRunner(ai: Ai): PromptRunner {
+        return ai.withLlm(llm)
+            .withPromptContributor(persona)
+            .withToolGroups(toolGroups)
+            .withToolObject(this)
+    }
+
+    /**
+     * Return a PromptRunner configured with this Actor's persona, LLM, and tools.
+     * The caller can continue to customize this PromptRunner before using it
+     * to create objects or generate text.
+     */
+    fun promptRunner(context: OperationContext) = promptRunner(context.ai())
+
+    override fun toString(): String = "Actor(persona=${persona}, llm=$llm, toolGroups=$toolGroups)"
+}

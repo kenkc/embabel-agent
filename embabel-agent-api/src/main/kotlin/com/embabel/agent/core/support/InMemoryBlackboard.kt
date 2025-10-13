@@ -72,6 +72,11 @@ class InMemoryBlackboard(
         bind(key, value)
     }
 
+    override fun getOrPut(
+        name: String,
+        creator: () -> Any,
+    ): Any = _map.getOrPut(name, creator)
+
     override fun setCondition(
         key: String,
         value: Boolean,

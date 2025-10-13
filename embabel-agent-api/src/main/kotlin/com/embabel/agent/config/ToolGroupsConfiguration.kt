@@ -16,20 +16,61 @@
 package com.embabel.agent.config
 
 
+import com.embabel.agent.common.Constants.EMBABEL_PROVIDER
 import com.embabel.agent.core.CoreToolGroups
 import com.embabel.agent.core.ToolGroup
+import com.embabel.agent.core.ToolGroupDescription
 import com.embabel.agent.core.ToolGroupPermission
 import com.embabel.agent.tools.math.MathTools
 import com.embabel.agent.tools.mcp.McpToolGroup
+import com.embabel.common.core.types.Semver
 import io.modelcontextprotocol.client.McpSyncClient
 import org.slf4j.LoggerFactory
+import org.springframework.ai.tool.ToolCallback
+import org.springframework.boot.context.properties.ConfigurationProperties
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
+data class GroupConfig(
+    val description: String? = null,
+    val provider: String = EMBABEL_PROVIDER,
+    val tools: Set<String> = emptySet(),
+) {
+
+    fun include(tool: ToolCallback): Boolean {
+        return tools.any { exclude -> tool.toolDefinition.name().endsWith(exclude) }
+    }
+}
+
+/**
+ * Configuration for ToolGroups when MCP is available
+ */
+@ConfigurationProperties(prefix = "embabel.agent.platform.tools")
+class ToolGroupsProperties {
+    /**
+     * Map of tool group names to list of tool names to include
+     */
+    var includes: Map<String, GroupConfig> = emptyMap()
+
+    /**
+     * List of tool names to exclude from all tool groups
+     */
+    var excludes: List<String> = emptyList()
+
+    /**
+     * The version of tool groups
+     */
+    var version: String = Semver().value
+}
 
 @Configuration
+@EnableConfigurationProperties(
+    ToolGroupsProperties::class,
+)
 class ToolGroupsConfiguration(
     private val mcpSyncClients: List<McpSyncClient>,
+    private val properties: ToolGroupsProperties,
 ) {
 
     private val logger = LoggerFactory.getLogger(ToolGroupsConfiguration::class.java)
@@ -43,7 +84,39 @@ class ToolGroupsConfiguration(
     }
 
     @Bean
+    fun includedToolGroups(): List<ToolGroup> {
+        val groups = properties.includes.map { (role, gid) ->
+            logger.info("Exposing tool group {}", role)
+            toToolGroup(role, gid)
+        }
+        return groups
+    }
+
+    @Bean
     fun mathToolGroup() = MathTools()
+
+    private fun toToolGroup(
+        role: String,
+        gid: GroupConfig,
+    ): ToolGroup {
+        return McpToolGroup(
+            description = ToolGroupDescription(description = gid.description ?: role, role = role),
+            name = role,
+            provider = gid.provider,
+            permissions = setOf(
+                ToolGroupPermission.INTERNET_ACCESS
+            ),
+            clients = mcpSyncClients,
+            filter = { tool ->
+                val included = gid.tools.any { gid.include(tool) }
+                logger.debug(
+                    "Tool '{}' included in group {}={} - [{}]", tool.toolDefinition.name(), role, included,
+                    gid.tools.joinToString(", ") { t -> "'$t'" }
+                )
+                included
+            }
+        )
+    }
 
     @Bean
     fun mcpWebToolsGroup(): ToolGroup {
@@ -66,8 +139,7 @@ class ToolGroupsConfiguration(
                 // don't use it for now
                 (it.toolDefinition.name().contains("brave") || it.toolDefinition.name().contains("fetch") ||
                         wikipediaTools.any { wt -> it.toolDefinition.name().contains(wt) }) &&
-                        !(it.toolDefinition.name().contains("brave_local_search") || it.toolDefinition.name()
-                            .contains("brave_image_search"))
+                        !(it.toolDefinition.name().contains("brave_local_search"))
             },
         )
     }
@@ -122,7 +194,11 @@ class ToolGroupsConfiguration(
                 ToolGroupPermission.INTERNET_ACCESS
             ),
             clients = mcpSyncClients,
-            filter = { GitHubTools.any { ght -> it.toolDefinition.name().contains(ght) } },
+            filter = {
+                GitHubTools.any { ght ->
+                    it.toolDefinition.name().contains(ght)
+                }
+            },
         )
     }
 

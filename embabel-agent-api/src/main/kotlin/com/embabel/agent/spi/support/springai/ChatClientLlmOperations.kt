@@ -32,9 +32,11 @@ import com.fasterxml.jackson.databind.DatabindException
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import io.micrometer.observation.ObservationRegistry
 import jakarta.annotation.PostConstruct
 import org.springframework.ai.chat.client.ChatClient
 import org.springframework.ai.chat.client.ResponseEntity
+import org.springframework.ai.chat.client.observation.DefaultChatClientObservationConvention
 import org.springframework.ai.chat.messages.SystemMessage
 import org.springframework.ai.chat.messages.UserMessage
 import org.springframework.ai.chat.model.ChatResponse
@@ -71,6 +73,7 @@ internal class ChatClientLlmOperations(
     private val applicationContext: ApplicationContext? = null,
     autoLlmSelectionCriteriaResolver: AutoLlmSelectionCriteriaResolver = AutoLlmSelectionCriteriaResolver.DEFAULT,
     private val objectMapper: ObjectMapper = jacksonObjectMapper().registerModule(JavaTimeModule()),
+    private val observationRegistry: ObservationRegistry = ObservationRegistry.NOOP,
 ) : AbstractLlmOperations(toolDecorator, modelProvider, autoLlmSelectionCriteriaResolver) {
 
     @PostConstruct
@@ -98,7 +101,6 @@ internal class ChatClientLlmOperations(
         logger.info("Current LLM settings: maxAttempts=${dataBindingProperties.maxAttempts}, fixedBackoffMillis=${dataBindingProperties.fixedBackoffMillis}ms, timeout=${llmOperationsPromptsProperties.defaultTimeout.seconds}s")
     }
 
-    @Suppress("UNCHECKED_CAST")
     override fun <O> doTransform(
         messages: List<Message>,
         interaction: LlmInteraction,
@@ -225,9 +227,8 @@ internal class ChatClientLlmOperations(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
     override fun <O> doTransformIfPossible(
-        prompt: String,
+        messages: List<Message>,
         interaction: LlmInteraction,
         outputClass: Class<O>,
         llmRequestEvent: LlmRequestEvent<O>,
@@ -246,7 +247,8 @@ internal class ChatClientLlmOperations(
                 if (promptContributions.isNotEmpty()) {
                     add(SystemMessage(promptContributions))
                 }
-                add(UserMessage("Instruction: <$prompt>\n\n$maybeReturnPromptContribution"))
+                add(UserMessage(maybeReturnPromptContribution))
+                addAll(messages.map { it.toSpringAiMessage() })
             }
         )
         llmRequestEvent.agentProcess.processContext.onProcessEvent(
@@ -358,17 +360,17 @@ internal class ChatClientLlmOperations(
         }
 
         // Create a ParameterizedTypeReference that uses our custom type
-        return object : org.springframework.core.ParameterizedTypeReference<T>() {
+        return object : ParameterizedTypeReference<T>() {
             override fun getType() = type
         }
     }
 
-
-    private fun createChatClient(
-        llm: Llm,
-    ): ChatClient {
+    /**
+     * Create a chat client for the given Embabel Llm definition
+     **/
+    private fun createChatClient(llm: Llm): ChatClient {
         return ChatClient
-            .builder(llm.model)
+            .builder(llm.model, observationRegistry, DefaultChatClientObservationConvention())
             .build()
     }
 

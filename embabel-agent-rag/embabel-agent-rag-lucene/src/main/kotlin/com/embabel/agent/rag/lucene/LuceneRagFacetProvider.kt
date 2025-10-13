@@ -46,15 +46,23 @@ import kotlin.math.sqrt
 import org.springframework.ai.document.Document as SpringAiDocument
 
 /**
- * LuceneRagService with optional vector search support via an EmbeddingModel.
+ * Lucene RAG facet with optional vector search support via an EmbeddingModel.
  * Supports both in-memory and disk-based persistence.
+ * Implements WritableContentElementRepository so we can add to the store.
+ *
+ * @param name Name of this RAG service
+ * @param embeddingModel Optional embedding model for vector search; if null, only text search is
+ * supported
+ * @param vectorWeight Weighting for vector similarity in hybrid search (0.0 to 1.0)
+ * @param chunkerConfig Configuration for content chunking
+ * @param indexPath Optional path for disk-based index storage; if null, uses in-memory storage
  */
 class LuceneRagFacetProvider @JvmOverloads constructor(
     override val name: String,
     private val embeddingModel: EmbeddingModel? = null,
-    private val vectorWeight: Double = 0.5, // Balance between text and vector similarity
+    private val vectorWeight: Double = 0.5,
     chunkerConfig: ContentChunker.Config = ContentChunker.DefaultConfig(),
-    private val indexPath: Path? = null, // If null, uses in-memory storage
+    private val indexPath: Path? = null,
 ) : RagFacetProvider, AbstractWritableContentElementRepository(chunkerConfig), HasInfoString, Closeable {
 
     private val logger = LoggerFactory.getLogger(LuceneRagFacetProvider::class.java)
@@ -118,7 +126,7 @@ class LuceneRagFacetProvider @JvmOverloads constructor(
             contentElementStorage[chunkId] as? Chunk
         }
 
-        logger.debug("Found {}/{} chunks", foundChunks.size, chunkIds.size)
+        logger.debug("Found {}/{} chunks by id", foundChunks.size, chunkIds.size)
         return foundChunks
     }
 
@@ -372,23 +380,36 @@ class LuceneRagFacetProvider @JvmOverloads constructor(
                 logger.info("Opening DirectoryReader to read from disk")
                 val reader = DirectoryReader.open(readDirectory)
 
-                logger.info("Successfully opened reader. Index has {} documents (maxDoc: {})", reader.numDocs(), reader.maxDoc())
+                logger.info(
+                    "Successfully opened reader. Index has {} documents (maxDoc: {})",
+                    reader.numDocs(),
+                    reader.maxDoc()
+                )
 
                 // Load all existing documents from the index
                 for (i in 0 until reader.maxDoc()) {
                     try {
                         val doc = reader.storedFields().document(i)
-                        logger.info("Loading document {}: id={}, content preview={}", i, doc.get("id"), doc.get("content")?.take(50))
+                        logger.debug(
+                            "Loading document {}: id={}, content preview={}",
+                            i,
+                            doc.get("id"),
+                            doc.get("content")?.take(50)
+                        )
                         val chunk = createChunkFromDocument(doc)
                         contentElementStorage[chunk.id] = chunk
-                        logger.info("Successfully loaded chunk with id: {}", chunk.id)
+                        logger.info("✅ Loaded chunk with id={}", chunk.id)
                     } catch (e: Exception) {
-                        logger.error("Failed to load document {}: {}", i, e.message, e)
+                        logger.error("❌ Failed to load document {}: {}", i, e.message, e)
                     }
                 }
 
                 reader.close()
-                logger.info("Successfully loaded {} existing chunks from disk index", contentElementStorage.size)
+                logger.info(
+                    "✅ Loaded {} existing chunks from disk index {}",
+                    contentElementStorage.size,
+                    indexPath,
+                )
 
             } finally {
                 readDirectory.close()

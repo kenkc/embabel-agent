@@ -20,31 +20,59 @@ import com.embabel.agent.config.models.DockerLocalModels.Companion.PROVIDER
 import com.embabel.agent.config.models.OpenAiChatOptionsConverter
 import com.embabel.common.ai.model.*
 import com.embabel.common.util.ExcludeFromJacocoGeneratedReport
+import io.micrometer.observation.ObservationRegistry
 import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.ai.document.MetadataMode
 import org.springframework.ai.model.NoopApiKey
+import org.springframework.ai.model.tool.ToolCallingManager
 import org.springframework.ai.openai.OpenAiChatModel
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.ai.openai.OpenAiEmbeddingModel
 import org.springframework.ai.openai.OpenAiEmbeddingOptions
 import org.springframework.ai.openai.api.OpenAiApi
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.boot.context.properties.ConfigurationProperties
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration
-import org.springframework.core.env.Environment
 import org.springframework.http.MediaType
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.body
+import org.springframework.web.reactive.function.client.WebClient
 
-@ConfigurationProperties(prefix = "embabel.docker.models")
-data class DockerProperties(
-    val baseUrl: String = "http://localhost:12434/engines",
-    override val maxAttempts: Int = 10,
-    override val backoffMillis: Long = 2000L,
-    override val backoffMultiplier: Double = 5.0,
-    override val backoffMaxInterval: Long = 180000L,
-) : RetryProperties
+
+@ConfigurationProperties(prefix = "embabel.agent.platform.models.docker")
+class DockerRetryProperties : RetryProperties {
+
+    /**
+     *  Maximum number of attempts.
+     */
+    override var maxAttempts: Int = 10
+
+    /**
+     * Initial backoff interval (in milliseconds).
+     */
+    override var backoffMillis: Long = 5000L
+
+    /**
+     * Backoff interval multiplier.
+     */
+    override var backoffMultiplier: Double = 5.0
+
+    /**
+     * Maximum backoff interval (in milliseconds).
+     */
+    override var backoffMaxInterval: Long = 180000L
+}
+
+@ConfigurationProperties(prefix = "embabel.agent.models.docker")
+class DockerConnectionProperties {
+    /**
+     * Base URL for Docker model endpoint
+     */
+    var baseUrl: String = "http://localhost:12434/engines"
+}
 
 /**
  * Docker local models
@@ -54,12 +82,18 @@ data class DockerProperties(
  * http://localhost:12434/engines/v1/models (assuming default port).
  */
 @ExcludeFromJacocoGeneratedReport(reason = "Docker model configuration can't be unit tested")
-@Configuration
+@Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(
+    DockerRetryProperties::class,
+    DockerConnectionProperties::class,
+    ConfigurableModelProviderProperties::class
+)
 class DockerLocalModelsConfig(
-    private val dockerProperties: DockerProperties,
+    private val dockerRetryProperties: DockerRetryProperties,
+    private val dockerConnectionProperties: DockerConnectionProperties,
     private val configurableBeanFactory: ConfigurableBeanFactory,
-    private val environment: Environment,
     private val properties: ConfigurableModelProviderProperties,
+    private val observationRegistry: ObjectProvider<ObservationRegistry>,
 ) {
     private val logger = LoggerFactory.getLogger(DockerLocalModelsConfig::class.java)
 
@@ -80,7 +114,7 @@ class DockerLocalModelsConfig(
         try {
             val restClient = RestClient.create()
             val response = restClient.get()
-                .uri("${dockerProperties.baseUrl}/v1/models")
+                .uri("${dockerConnectionProperties.baseUrl}/v1/models")
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
                 .body<ModelResponse>()
@@ -91,14 +125,14 @@ class DockerLocalModelsConfig(
                 )
             } ?: emptyList()
         } catch (e: Exception) {
-            logger.warn("Failed to load models from {}: {}", dockerProperties.baseUrl, e.message)
+            logger.warn("Failed to load models from {}: {}", dockerConnectionProperties.baseUrl, e.message)
             emptyList()
         }
 
 
     @PostConstruct
     fun registerModels() {
-        logger.info("Docker local models will be discovered at {}", dockerProperties.baseUrl)
+        logger.info("Docker local models will be discovered at {}", dockerConnectionProperties.baseUrl)
 
         val models = loadModels()
         logger.info(
@@ -135,14 +169,14 @@ class DockerLocalModelsConfig(
         return if (properties.allWellKnownEmbeddingServiceNames().contains(model.id)) {
             dockerEmbeddingServiceOf(model)
         } else {
-          return  dockerLlmOf(model)
+            return dockerLlmOf(model)
         }
     }
 
     private fun dockerEmbeddingServiceOf(model: Model): EmbeddingService {
         val springEmbeddingModel = OpenAiEmbeddingModel(
             OpenAiApi.Builder()
-                .baseUrl(dockerProperties.baseUrl)
+                .baseUrl(dockerConnectionProperties.baseUrl)
                 .apiKey(NoopApiKey())
                 .build(),
             MetadataMode.EMBED,
@@ -162,16 +196,24 @@ class DockerLocalModelsConfig(
         val chatModel = OpenAiChatModel.builder()
             .openAiApi(
                 OpenAiApi.Builder()
-                    .baseUrl(dockerProperties.baseUrl)
+                    .baseUrl(dockerConnectionProperties.baseUrl)
                     .apiKey(NoopApiKey())
+                    .restClientBuilder(RestClient.builder()
+                        .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP }))
+                    .webClientBuilder(WebClient.builder()
+                        .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP }))
                     .build()
             )
+            .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+            .toolCallingManager(ToolCallingManager.builder()
+                .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+                    .build())
             .defaultOptions(
                 OpenAiChatOptions.builder()
                     .model(model.id)
                     .build()
             )
-            .retryTemplate(dockerProperties.retryTemplate("docker-${model.id}"))
+            .retryTemplate(dockerRetryProperties.retryTemplate("docker-${model.id}"))
             .build()
         return Llm(
             name = model.id,

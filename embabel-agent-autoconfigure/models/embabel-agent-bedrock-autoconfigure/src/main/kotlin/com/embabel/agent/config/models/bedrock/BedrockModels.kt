@@ -41,6 +41,7 @@ import org.springframework.boot.autoconfigure.AutoConfigureBefore
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.boot.context.properties.NestedConfigurationProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Import
@@ -51,17 +52,37 @@ import software.amazon.awssdk.regions.providers.AwsRegionProvider
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeAsyncClient
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient
 
-@ConfigurationProperties(prefix = "embabel.models.bedrock")
-data class BedrockProperties(
-    val models: List<BedrockModelProperties> = emptyList(),
-)
+@ConfigurationProperties(prefix = "embabel.agent.models.bedrock")
+class BedrockProperties {
+    /**
+     * List of Bedrock models to configure
+     */
+    @NestedConfigurationProperty
+    var models: List<BedrockModelProperties> = emptyList()
+}
 
-data class BedrockModelProperties(
-    val name: String = "",
-    val knowledgeCutoff: String = "",
-    val inputPrice: Double = 0.0,
-    val outputPrice: Double = 0.0,
-)
+@ConfigurationProperties(prefix = "embabel.agent.models.bedrock.models")
+class BedrockModelProperties {
+    /**
+     * Name of the LLM, such as "gpt-3.5-turbo"
+     */
+    var name: String = ""
+
+    /**
+     * Model's knowledge cutoff date
+     */
+    var knowledgeCutoff: String = ""
+
+    /**
+     * Input token price
+     */
+    var inputPrice: Double = 0.0
+
+    /**
+     * Output token price
+     */
+    var outputPrice: Double = 0.0
+}
 
 @ConditionalOnClass(
     BedrockProxyChatModel::class,
@@ -70,7 +91,8 @@ data class BedrockModelProperties(
     TitanEmbeddingBedrockApi::class,
     CohereEmbeddingBedrockApi::class
 )
-@Configuration
+
+@Configuration(proxyBeanMethods = false)
 @Import(BedrockAwsConnectionConfiguration::class)
 @EnableConfigurationProperties(
     BedrockProperties::class,
@@ -190,6 +212,8 @@ class BedrockModels(
         .timeout(connectionProperties.timeout)
         .defaultOptions(ToolCallingChatOptions.builder().model(model).build())
         .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+        .toolCallingManager(ToolCallingManager.builder()
+            .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP }).build())
         .bedrockRuntimeClient(bedrockRuntimeClient.getIfAvailable())
         .bedrockRuntimeAsyncClient(bedrockRuntimeAsyncClient.getIfAvailable())
         .build()

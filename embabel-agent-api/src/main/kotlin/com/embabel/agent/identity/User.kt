@@ -35,18 +35,3 @@ interface User {
 
     val email: String?
 }
-
-interface UserService<U : User> {
-
-    fun findById(id: String): U?
-
-    /**
-     * Add the user to the system.
-     * Default implementation refuses to do so.
-     */
-    fun provisionUser(
-        userInfo: U,
-    ): U {
-        error("User cannot be provisioned: $userInfo")
-    }
-}

@@ -25,6 +25,8 @@ import org.slf4j.LoggerFactory
  * Rag service that combines multiple RagFacets and returns the best results
  */
 class FacetedRagService(
+    override val name: String,
+    override val description: String = name,
     facets: List<RagFacet<out Retrievable>>,
     facetProviders: List<RagFacetProvider>,
 ) : RagService {
@@ -34,11 +36,8 @@ class FacetedRagService(
     val ragFacets = facets.toList() + facetProviders.flatMap { it.facets() }
 
     init {
-        logger.info("Discovered {} RagFacets:", ragFacets.size)
+        logger.info("Discovered {} RagFacets", ragFacets.size)
     }
-
-    override val name: String
-        get() = "${javaClass.simpleName} with facets: " + ragFacets.joinToString(" & ") { it.name }
 
     override fun search(ragRequest: RagRequest): RagResponse {
         // TODO could parallelize
@@ -53,9 +52,6 @@ class FacetedRagService(
         logger.debug("RagResponse: {}", ragResponse)
         return ragResponse
     }
-
-    override val description: String
-        get() = name
 
     override fun infoString(
         verbose: Boolean?,

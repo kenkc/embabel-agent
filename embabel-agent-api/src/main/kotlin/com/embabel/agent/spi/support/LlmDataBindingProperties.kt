@@ -28,12 +28,19 @@ import java.time.Duration
  * We want to be more forgiving with data binding. This
  * can be important for smaller models.
  */
-@ConfigurationProperties(prefix = "embabel.llm-operations.data-binding")
-data class LlmDataBindingProperties(
-    override val maxAttempts: Int = 10,
-    val fixedBackoffMillis: Long = 30L,
-) : RetryTemplateProvider {
+@ConfigurationProperties(prefix = "embabel.agent.platform.llm-operations.data-binding")
+class LlmDataBindingProperties : RetryTemplateProvider {
     private val logger = LoggerFactory.getLogger(LlmDataBindingProperties::class.java)
+
+    /**
+     * Maximum retry attempts for data binding
+     */
+    override var maxAttempts: Int = 10
+
+    /**
+     * Fixed backoff time in milliseconds between retries
+     */
+    var fixedBackoffMillis: Long = 30L
 
     override fun retryTemplate(name: String): RetryTemplate {
         return RetryTemplate.builder()
@@ -43,17 +50,43 @@ data class LlmDataBindingProperties(
                 override fun <T : Any, E : Throwable> onError(
                     context: RetryContext,
                     callback: RetryCallback<T, E>,
-                    throwable: Throwable
+                    throwable: Throwable,
                 ) {
-                    logger.info(
-                        "LLM invocation {}: Retry attempt {} of {} due to: {}",
-                        name,
-                        context.retryCount,
-                        maxAttempts,
-                        throwable.message ?: "Unknown error"
-                    )
+                    if (isRateLimitError(throwable)) {
+                        logger.info(
+                            "🔒 LLM invocation {} RATE LIMITED: Retry attempt {} of {}",
+                            name,
+                            context.retryCount,
+                            maxAttempts,
+                        )
+                    } else {
+                        logger.warn(
+                            "LLM invocation {}: Retry attempt {} of {} due to: {}",
+                            name,
+                            context.retryCount,
+                            maxAttempts,
+                            throwable.message ?: "Unknown error"
+                        )
+                    }
                 }
             })
             .build()
+    }
+
+    companion object {
+        private val RATE_LIMIT_PATTERNS = listOf(
+            "rate limit",
+            "too many requests",
+            "quota exceeded",
+            "rate-limited",
+            "429",
+        )
+
+        fun isRateLimitError(t: Throwable): Boolean {
+            val message = t.message?.lowercase() ?: return false
+            return RATE_LIMIT_PATTERNS.any { pattern ->
+                message.contains(pattern)
+            }
+        }
     }
 }

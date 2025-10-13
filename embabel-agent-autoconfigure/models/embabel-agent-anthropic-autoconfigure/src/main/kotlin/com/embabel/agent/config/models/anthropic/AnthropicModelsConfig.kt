@@ -22,14 +22,18 @@ import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.model.OptionsConverter
 import com.embabel.common.ai.model.PerTokenPricingModel
 import com.embabel.common.util.ExcludeFromJacocoGeneratedReport
+import io.micrometer.observation.ObservationRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.ai.anthropic.AnthropicChatModel
 import org.springframework.ai.anthropic.AnthropicChatOptions
 import org.springframework.ai.anthropic.api.AnthropicApi
+import org.springframework.ai.model.tool.ToolCallingManager
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.web.client.RestClient
+import org.springframework.web.reactive.function.client.WebClient
 import java.time.LocalDate
 
 
@@ -40,12 +44,27 @@ import java.time.LocalDate
  * when calling Anthropic APIs.
  */
 @ConfigurationProperties(prefix = "embabel.agent.platform.models.anthropic")
-data class AnthropicProperties(
-    override val maxAttempts: Int = 10,
-    override val backoffMillis: Long = 5000L,
-    override val backoffMultiplier: Double = 5.0,
-    override val backoffMaxInterval: Long = 180000L,
-) : RetryProperties
+class AnthropicProperties : RetryProperties {
+    /**
+     *  Maximum number of attempts.
+     */
+    override var maxAttempts: Int = 10
+
+    /**
+     * Initial backoff interval (in milliseconds).
+     */
+    override var backoffMillis: Long = 5000L
+
+    /**
+     * Backoff interval multiplier.
+     */
+    override var backoffMultiplier: Double = 5.0
+
+    /**
+     * Maximum backoff interval (in milliseconds).
+     */
+    override var backoffMaxInterval: Long = 180000L
+}
 
 
 /**
@@ -53,7 +72,7 @@ data class AnthropicProperties(
  * This class provides beans for various Claude models (Opus, Sonnet, Haiku)
  * and handles the creation of Anthropic API clients with proper authentication.
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 @ExcludeFromJacocoGeneratedReport(reason = "Anthropic configuration can't be unit tested")
 class AnthropicModelsConfig(
     @param:Value("\${ANTHROPIC_BASE_URL:}")
@@ -61,6 +80,7 @@ class AnthropicModelsConfig(
     @param:Value("\${ANTHROPIC_API_KEY}")
     private val apiKey: String,
     private val properties: AnthropicProperties,
+    private val observationRegistry: ObservationRegistry,
 ) {
     private val logger = LoggerFactory.getLogger(AnthropicModelsConfig::class.java)
 
@@ -120,8 +140,14 @@ class AnthropicModelsConfig(
                     .build()
             )
             .anthropicApi(createAnthropicApi())
+            .toolCallingManager(
+                ToolCallingManager.builder()
+                    .observationRegistry(observationRegistry)
+                    .build())
             .retryTemplate(properties.retryTemplate("anthropic-$name"))
+            .observationRegistry(observationRegistry)
             .build()
+
         return Llm(
             name = name,
             model = chatModel,
@@ -137,6 +163,14 @@ class AnthropicModelsConfig(
             logger.info("Using custom Anthropic base URL: {}", baseUrl)
             builder.baseUrl(baseUrl)
         }
+        //add observation registry to rest and web client builders
+        builder
+            .restClientBuilder(RestClient.builder()
+                .observationRegistry(observationRegistry))
+        builder
+            .webClientBuilder(WebClient.builder()
+                .observationRegistry(observationRegistry))
+
         return builder.build()
     }
 

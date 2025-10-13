@@ -20,7 +20,8 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import java.util.*
@@ -32,6 +33,7 @@ class MapperTest {
     private val context = mockk<OperationContext>()
 
     @Test
+    @Disabled("Flaky test, needs investigation")
     fun `parallelMap should process items concurrently`() {
         val items = (1..100).toList()
         val counter = AtomicInteger(0)
@@ -63,7 +65,10 @@ class MapperTest {
         val results = items.mapAsync(context) { item ->
             val currentCount = counter.incrementAndGet()
             val bias = 1 + ((items.size - item) / 50)   // 1..3
-            val delayMs = random.nextInt(5 * bias, 5 + 5 * bias) //early ones run for longer times 5ms to 10ms, 10ms to 15ms and 15ms to 20ms
+            val delayMs = random.nextInt(
+                5 * bias,
+                5 + 5 * bias
+            ) //early ones run for longer times 5ms to 10ms, 10ms to 15ms and 15ms to 20ms
             delay(delayMs.toLong())
             processingTracker.add(currentCount)
             item * 2

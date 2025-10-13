@@ -98,7 +98,7 @@ abstract class AbstractLlmOperations(
     }
 
     final override fun <O> createObjectIfPossible(
-        prompt: String,
+        messages: List<Message>,
         interaction: LlmInteraction,
         outputClass: Class<O>,
         agentProcess: AgentProcess,
@@ -108,12 +108,12 @@ abstract class AbstractLlmOperations(
             agentProcess = agentProcess,
             interaction = interaction,
             action = action,
-            messages = listOf(UserMessage(prompt)),
+            messages = messages,
             outputClass = outputClass,
         )
         val (response, ms) = time {
             doTransformIfPossible(
-                prompt = prompt,
+                messages = messages,
                 interaction = interaction.copy(toolCallbacks = allToolCallbacks.map {
                     toolDecorator.decorate(
                         tool = it,
@@ -140,17 +140,16 @@ abstract class AbstractLlmOperations(
         llmOptions: LlmOptions,
     ): Llm {
         val crit: ModelSelectionCriteria = when (llmOptions.criteria) {
-            null -> DefaultModelSelectionCriteria
             is AutoModelSelectionCriteria ->
                 autoLlmSelectionCriteriaResolver.resolveAutoLlm()
 
-            else -> llmOptions.criteria ?: DefaultModelSelectionCriteria
+            else -> llmOptions.criteria
         }
         return modelProvider.getLlm(crit)
     }
 
     protected abstract fun <O> doTransformIfPossible(
-        prompt: String,
+        messages: List<Message>,
         interaction: LlmInteraction,
         outputClass: Class<O>,
         llmRequestEvent: LlmRequestEvent<O>,
@@ -178,9 +177,7 @@ abstract class AbstractLlmOperations(
             llm = chooseLlm(llmOptions = interaction.llm),
             messages = messages,
         )
-        agentProcess.processContext.onProcessEvent(
-            llmRequestEvent
-        )
+        agentProcess.processContext.onProcessEvent(llmRequestEvent)
         logger.debug(
             "Expanded toolCallbacks from {}: {}",
             llmRequestEvent.interaction.toolCallbacks.map { it.toolDefinition.name() },

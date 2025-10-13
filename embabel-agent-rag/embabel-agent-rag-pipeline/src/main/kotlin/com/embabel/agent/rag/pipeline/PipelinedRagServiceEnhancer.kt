@@ -68,36 +68,42 @@ class PipelinedRagServiceEnhancer(
         override val description
             get() = "Pipelined RAG service wrapping ${delegate.name}: ${delegate.description}"
 
-        private fun hydeQuery(ragRequest: RagRequest): String {
-            val hyde = operationContext
+        private fun hydeQuery(
+            ragRequest: RagRequest,
+            hyDE: HyDE,
+        ): String {
+            val hydeQuery = operationContext
                 .ai()
                 .withLlm(ragServiceEnhancerProperties.compressionLlm)
                 .generateText(
                     """
                     Given the following request, generate a plausible hypothetical
-                    answer relevant to the Embabel JVM agent framework.
-                    Embabel is built on Spring and emphasizes domain modeling and strong typing.
-                    Don't worry if it's not accurate; just make it a reasonable
+                    answer.
+                    Don't worry if the answer isn't accurate; just make it a reasonable
                     example of an answer to the query.
                     The answer should be at most ${ragRequest.hyDE?.wordCount ?: 50} words.
 
                     REQUEST:
                     ${ragRequest.query}
+
+                    CONTEXT FOR THE ANSWER:
+                    ${hyDE.context}
                 """.trimIndent()
                 )
-            logger.info("{} -> Generated HyDE query: {}", ragRequest.query, hyde)
-            return hyde
+            logger.info("{} -> Generated HyDE query: {}", ragRequest.query, hydeQuery)
+            return hydeQuery
         }
 
         override fun search(ragRequest: RagRequest): RagResponse {
             listener.onRagEvent(RagRequestReceivedEvent(ragRequest))
             logger.info("Performing initial rag search for {} using RagService {}", ragRequest, delegate.name)
             val initialRequest = ragRequest.copy(
-                query = if (ragRequest.hyDE != null) hydeQuery(ragRequest) else ragRequest.query,
+                query = ragRequest.hyDE?.let { hydeQuery(ragRequest, it) } ?: ragRequest.query,
                 topK = ragRequest.topK * 2,
                 similarityThreshold = ragRequest.similarityThreshold / 2,
             )
             listener.onRagEvent(InitialRequestRagPipelineEvent(initialRequest, delegate.name))
+
             // Return to initial request
             val initialResponse = delegate.search(initialRequest)
                 .copy(request = ragRequest)
@@ -115,7 +121,6 @@ class PipelinedRagServiceEnhancer(
                             )
                         )
                     }
-                    // Add reranking enhancer for improved result relevance
                     add(RerankingEnhancer(operationContext, ragServiceEnhancerProperties.rerankingLlm))
                     add(FilterEnhancer)
                 },

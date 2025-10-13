@@ -28,6 +28,11 @@ data class RagFacetResults<out R : Retrievable>(
     val results: List<SimilarityResult<out R>>,
 )
 
+/**
+ * A facet of a RAG service. A facet can be searched independently,
+ * and returns results of a particular type.
+ * A FacetedRagService combines results from multiple facets.
+ */
 interface RagFacet<R : Retrievable> : Named {
 
     fun search(ragRequest: RagRequest): RagFacetResults<R>

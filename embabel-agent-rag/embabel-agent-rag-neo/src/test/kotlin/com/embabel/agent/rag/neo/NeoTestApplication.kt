@@ -1,0 +1,109 @@
+/*
+ * Copyright 2024-2025 Embabel Software, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.embabel.agent.rag.neo
+
+import com.embabel.agent.config.AgentPlatformConfiguration
+import com.embabel.agent.config.models.DockerLocalModels
+import com.embabel.agent.config.models.OllamaModels
+import org.neo4j.ogm.config.Configuration
+import org.neo4j.ogm.session.Session
+import org.neo4j.ogm.session.SessionFactory
+import org.neo4j.ogm.session.event.Event
+import org.neo4j.ogm.session.event.EventListenerAdapter
+import org.springframework.boot.SpringApplication
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.autoconfigure.web.reactive.HttpHandlerAutoConfiguration
+import org.springframework.boot.autoconfigure.web.reactive.WebFluxAutoConfiguration
+import org.springframework.boot.autoconfigure.web.reactive.error.ErrorWebFluxAutoConfiguration
+import org.springframework.boot.autoconfigure.websocket.reactive.WebSocketReactiveAutoConfiguration
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan
+import com.embabel.agent.rag.neo.support.Neo4jTestContainer
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.ComponentScan
+import org.springframework.context.annotation.FilterType
+import org.springframework.context.annotation.Import
+import org.springframework.data.neo4j.annotation.EnableNeo4jAuditing
+import org.springframework.data.neo4j.repository.config.EnableNeo4jRepositories
+import org.springframework.data.neo4j.transaction.Neo4jTransactionManager
+import org.springframework.test.context.ActiveProfiles
+
+
+/**
+ * Main entry point for integration tests
+ */
+@SpringBootApplication(
+    exclude = [WebFluxAutoConfiguration::class, WebSocketReactiveAutoConfiguration::class, ErrorWebFluxAutoConfiguration::class, HttpHandlerAutoConfiguration::class
+    ]
+)
+@EnableNeo4jRepositories(basePackages = ["com.embabel"])
+@EnableNeo4jAuditing
+@ConfigurationPropertiesScan(basePackages = ["com.embabel"])
+@ComponentScan(
+    basePackages = ["com.embabel"],
+    excludeFilters = [ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = [com.embabel.common.test.ai.config.FakeAiConfiguration::class])]
+)
+@ActiveProfiles("test")
+@Import(AgentPlatformConfiguration::class, OllamaModels::class, DockerLocalModels::class, com.embabel.agent.rag.neo.config.NeoFakeAiConfiguration::class)
+open class NeoTestApplication {
+
+    companion object {
+        @JvmStatic
+        fun main(args: Array<String>) {
+            SpringApplication.run(NeoTestApplication::class.java, *args)
+        }
+    }
+
+    @Bean
+    fun neo4jTestContainer(): Neo4jTestContainer {
+        return Neo4jTestContainer.instance
+    }
+
+    @Bean
+    fun configuration(): Configuration? {
+        val c = neo4jTestContainer()
+        return Configuration.Builder()
+            .uri(c.boltUrl)
+            .credentials("neo4j", c.adminPassword)
+            .build()
+    }
+
+    @Bean
+    fun sessionFactory(): SessionFactory {
+        return object : SessionFactory(configuration(), "com.embabel.agent.rag") {
+            override fun openSession(): Session {
+                val s = super.openSession()
+                s.register(preSaveEventListener())
+                return s
+            }
+        }
+    }
+
+    @Bean
+    fun transactionManager(): Neo4jTransactionManager {
+        return Neo4jTransactionManager(sessionFactory())
+    }
+
+    @Bean
+    fun preSaveEventListener(): EventListenerAdapter {
+        return object : EventListenerAdapter() {
+            override fun onPreSave(event: Event?) {
+                // Add pre-save hook here, if needed
+            }
+        }
+    }
+
+
+}

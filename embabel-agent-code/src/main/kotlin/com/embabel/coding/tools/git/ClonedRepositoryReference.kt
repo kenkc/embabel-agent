@@ -35,14 +35,14 @@ import java.nio.file.attribute.BasicFileAttributes
  *
  * @param url The URL of the Git repository we cloned
  * @param localPath The local path where the repository is cloned.
- * @param shouldDeleteOnClose If true, the repository will be deleted when closed.
+ * @param deleteOnClose If true, the repository will be deleted when closed.
  * @param fileFormatLimits Limits for file processing operations.
  */
 class ClonedRepositoryReference(
     val url: String,
     override val description: String,
     val localPath: Path,
-    val shouldDeleteOnClose: Boolean = true,
+    val deleteOnClose: Boolean = true,
     val fileFormatLimits: FileFormatLimits = FileFormatLimits(),
 ) : AutoCloseable, FileReadTools, SymbolSearch, FileReadLog by DefaultFileReadLog(), LlmReference {
 
@@ -59,7 +59,7 @@ class ClonedRepositoryReference(
 
     init {
         // Register shutdown hook for cleanup if this should delete on close
-        shutdownHook = if (shouldDeleteOnClose) {
+        shutdownHook = if (deleteOnClose) {
             val hook = Thread {
                 if (!isClosed) {
                     cleanupRepository()
@@ -85,7 +85,7 @@ class ClonedRepositoryReference(
                 }
             }
 
-            if (shouldDeleteOnClose) {
+            if (deleteOnClose) {
                 cleanupRepository()
             }
         }
@@ -116,7 +116,7 @@ class ClonedRepositoryReference(
     }
 
     override fun toString(): String {
-        return "ClonedRepositoryReference(localPath=$localPath, shouldDeleteOnClose=$shouldDeleteOnClose)"
+        return "ClonedRepositoryReference(localPath=$localPath, shouldDeleteOnClose=$deleteOnClose)"
     }
 
     /**

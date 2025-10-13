@@ -15,6 +15,7 @@
  */
 package com.embabel.agent.spi
 
+import com.embabel.agent.api.common.InteractionId
 import com.embabel.agent.core.*
 import com.embabel.agent.event.LlmRequestEvent
 import com.embabel.agent.prompt.element.ContextualPromptElement
@@ -27,16 +28,6 @@ import com.embabel.common.core.MobyNameGenerator
 import com.embabel.common.core.types.HasInfoString
 import com.embabel.common.util.indent
 import org.springframework.ai.tool.ToolCallback
-
-/**
- * All prompt interactions through the platform need a unique id
- * This allows LLM interactions to be optimized by an AgentPlatform
- */
-@JvmInline
-value class InteractionId(val value: String) {
-
-    override fun toString(): String = value
-}
 
 /**
  * Spec for calling an LLM. Optional LlmOptions,
@@ -190,7 +181,7 @@ interface LlmOperations {
 
     /**
      * Create an output object, in the context of an AgentProcess.
-     * @param messages messages
+     * @param messages messages in the conversation so far. Could just be user message.
      * @param interaction Llm options and tool callbacks to use, plus unique identifier
      * @param outputClass Class of the output object
      * @param agentProcess Agent process we are running within
@@ -208,7 +199,7 @@ interface LlmOperations {
     /**
      * Try to create an output object in the context of an AgentProcess.
      * Return a failure result if the LLM does not have enough information to create the object.
-     * @param prompt User prompt
+     * @param messages messages
      * @param interaction Llm options and tool callbacks to use, plus unique identifier
      * @param outputClass Class of the output object
      * @param agentProcess Agent process we are running within
@@ -216,7 +207,7 @@ interface LlmOperations {
      * @throws InvalidLlmReturnFormatException if the LLM returns an object of the wrong type
      */
     fun <O> createObjectIfPossible(
-        prompt: String,
+        messages: List<Message>,
         interaction: LlmInteraction,
         outputClass: Class<O>,
         agentProcess: AgentProcess,
@@ -225,6 +216,8 @@ interface LlmOperations {
 
     /**
      * Low level transform, not necessarily aware of platform
+     * This is a convenience overload that creates a UserMessage
+     * from a String prompt
      * @param prompt user prompt. Will become the last user message
      * @param interaction The LLM call options
      * @param outputClass Class of the output object
@@ -244,7 +237,11 @@ interface LlmOperations {
         )
 
     /**
-     * Respond in a conversation
+     * Low level transform, not necessarily aware of platform
+     * @param messages messages
+     * @param interaction The LLM call options
+     * @param outputClass Class of the output object
+     * @param llmRequestEvent Event already published for this request if one has been
      */
     fun <O> doTransform(
         messages: List<Message>,

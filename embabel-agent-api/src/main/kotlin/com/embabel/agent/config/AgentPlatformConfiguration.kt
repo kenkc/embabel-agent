@@ -22,7 +22,6 @@ import com.embabel.agent.event.AgenticEventListener
 import com.embabel.agent.event.logging.LoggingAgenticEventListener
 import com.embabel.agent.event.logging.personality.ColorPalette
 import com.embabel.agent.event.logging.personality.DefaultColorPalette
-import com.embabel.agent.rag.RagServiceEnhancerProperties
 import com.embabel.agent.spi.*
 import com.embabel.agent.spi.support.*
 import com.embabel.agent.spi.support.springai.DefaultToolDecorator
@@ -41,7 +40,6 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.DependsOn
 import org.springframework.context.annotation.Primary
-import org.springframework.core.annotation.Order
 import org.springframework.web.client.RestTemplate
 
 /**
@@ -52,7 +50,6 @@ import org.springframework.web.client.RestTemplate
     ConfigurableModelProviderProperties::class,
     AgentPlatformProperties::class,
     ProcessRepositoryProperties::class,
-    RagServiceEnhancerProperties::class,
 )
 class AgentPlatformConfiguration(
 ) {
@@ -123,10 +120,19 @@ class AgentPlatformConfiguration(
     ): ContextRepository = InMemoryContextRepository(contextRepositoryProperties)
 
     @Bean
-    fun toolGroupResolver(toolGroups: List<ToolGroup>): ToolGroupResolver = RegistryToolGroupResolver(
-        name = "SpringBeansToolGroupResolver",
-        toolGroups
-    )
+    fun toolGroupResolver(
+        toolGroups: List<ToolGroup>,
+        toolGroupProviders: List<List<ToolGroup>>,
+    ): ToolGroupResolver {
+        val allToolGroups = buildList {
+            addAll(toolGroups)
+            toolGroupProviders.forEach { addAll(it) }
+        }
+        return RegistryToolGroupResolver(
+            name = "SpringBeansToolGroupResolver",
+            allToolGroups
+        )
+    }
 
     /**
      * Gets registered as an event listener

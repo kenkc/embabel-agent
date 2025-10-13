@@ -23,6 +23,7 @@ import com.embabel.agent.core.AgentScope
 import com.embabel.agent.core.ComputedBooleanCondition
 import com.embabel.agent.core.Export
 import com.embabel.agent.core.IoBinding
+import com.embabel.agent.core.JvmType
 import com.embabel.agent.core.support.Rerun
 import com.embabel.agent.core.support.safelyGetToolCallbacksFrom
 import com.embabel.agent.validation.AgentStructureValidator
@@ -34,6 +35,7 @@ import com.embabel.common.util.NameUtils
 import com.embabel.common.util.loggerFor
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import org.slf4j.LoggerFactory
+import org.springframework.cglib.proxy.Enhancer
 import org.springframework.context.support.StaticApplicationContext
 import org.springframework.stereotype.Service
 import org.springframework.util.ClassUtils
@@ -53,8 +55,9 @@ data class AgenticInfo(
 ) {
 
     // Unwrap proxy to get target class for annotation lookups
-    private val targetType: Class<*> = if (ClassUtils.isCglibProxyClass(type) ||
-                                           Proxy.isProxyClass(type)) {
+    private val targetType: Class<*> = if (Enhancer.isEnhanced(type) ||
+        Proxy.isProxyClass(type)
+    ) {
         ClassUtils.getUserClass(type)
     } else {
         type
@@ -394,7 +397,7 @@ class AgentMetadataReader(
             name = nameGenerator.generateName(instance, method.name),
             description = goalAnnotation.description,
             inputs = setOf(inputBinding),
-            outputClass = method.returnType,
+            outputType = JvmType(method.returnType),
             value = goalAnnotation.value,
             // Add precondition of the action having run
             pre = setOf(Rerun.hasRunCondition(action)) + action.preconditions.keys.toSet(),
