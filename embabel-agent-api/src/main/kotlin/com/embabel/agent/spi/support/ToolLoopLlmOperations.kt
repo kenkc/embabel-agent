@@ -42,6 +42,10 @@ import com.embabel.chat.SystemMessage
 import com.embabel.chat.UserMessage
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.model.ModelProvider
+import com.embabel.common.core.thinking.ThinkingException
+import com.embabel.common.core.thinking.ThinkingResponse
+import com.embabel.common.core.thinking.spi.InternalThinkingApi
+import com.embabel.common.core.thinking.spi.extractAllThinkingBlocks
 import com.embabel.common.textio.template.TemplateRenderer
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -138,25 +142,8 @@ open class ToolLoopLlmOperations(
             { text -> converter!!.convert(text)!! }
         }
 
-        // Create a decorator for dynamically injected tools (e.g., from MatryoshkaTool)
-        val injectedToolDecorator: ((Tool) -> Tool)? = llmRequestEvent?.let { event ->
-            { tool: Tool ->
-                toolDecorator.decorate(
-                    tool = tool,
-                    agentProcess = event.agentProcess,
-                    action = event.action,
-                    llmOptions = interaction.llm,
-                )
-            }
-        }
-
-        val injectionStrategy = if (interaction.additionalInjectionStrategies.isNotEmpty()) {
-            ChainedToolInjectionStrategy(
-                listOf(ToolInjectionStrategy.DEFAULT) + interaction.additionalInjectionStrategies
-            )
-        } else {
-            ToolInjectionStrategy.DEFAULT
-        }
+        val injectedToolDecorator = createInjectedToolDecorator(llmRequestEvent, interaction)
+        val injectionStrategy = createInjectionStrategy(interaction)
 
         val toolLoop = toolLoopFactory.create(
             llmMessageSender = messageSender,
@@ -177,28 +164,7 @@ open class ToolLoopLlmOperations(
         validateUserInput(userMessages, interaction, llmRequestEvent?.agentProcess?.blackboard)
 
         val tools = interaction.tools
-
-        // Publish ToolLoopStartEvent before the tool loop
-        val toolLoopStartEvent = llmRequestEvent?.let { event ->
-            ToolLoopStartEvent(
-                agentProcess = event.agentProcess,
-                action = event.action,
-                toolNames = tools.map { it.definition.name },
-                maxIterations = interaction.maxToolIterations,
-                interactionId = interaction.id.value,
-                outputClass = outputClass,
-            ).also { startEvent ->
-                event.agentProcess.processContext.onProcessEvent(startEvent)
-            }
-        }
-
-        // Tool loop tracing is handled by ToolLoopStartEvent/ToolLoopCompletedEvent
-        // to keep observability uniform across all agent events (actions, LLM calls, tools, etc.)
-        // rather than mixing Observation API inline with event-based tracing.
-        // val observation = Observation.createNotStarted("embabel.tool-loop", observationRegistry)
-        //     .contextualName("Tool Loop Execution")
-        // observation.start()
-        // ... observation.stop()
+        val toolLoopStartEvent = publishToolLoopStartEvent(llmRequestEvent, tools, interaction, outputClass)
 
         val result = toolLoop.execute(
             initialMessages = initialMessages,
@@ -206,27 +172,7 @@ open class ToolLoopLlmOperations(
             outputParser = outputParser,
         )
 
-        // Publish ToolLoopCompletedEvent after the tool loop
-        toolLoopStartEvent?.let { startEvent ->
-            llmRequestEvent.agentProcess.processContext.onProcessEvent(
-                startEvent.completedEvent(
-                    totalIterations = result.totalIterations,
-                    replanRequested = result.replanRequested,
-                )
-            )
-        }
-
-        result.totalUsage?.let { usage ->
-            recordUsage(llm, usage, llmRequestEvent)
-        }
-
-        // If replan was requested, re-throw the exception to propagate to action executor
-        if (result.replanRequested) {
-            throw ReplanRequestedException(
-                reason = result.replanReason ?: "Tool requested replan",
-                blackboardUpdater = result.blackboardUpdater,
-            )
-        }
+        handleToolLoopCompletion(toolLoopStartEvent, result, llmRequestEvent, llm)
 
         // Guardrails: Post-validation of assistant response
         // For the tool loop path, validate the final result based on its type
@@ -364,6 +310,98 @@ open class ToolLoopLlmOperations(
 
         // Convert MaybeReturn<O> to Result<O>
         return maybeReturn.toResult()
+    }
+
+    @OptIn(InternalThinkingApi::class)
+    override fun <O> doTransformWithThinking(
+        messages: List<Message>,
+        interaction: LlmInteraction,
+        outputClass: Class<O>,
+        llmRequestEvent: LlmRequestEvent<O>?,
+    ): ThinkingResponse<O> {
+        val llm = chooseLlm(interaction.llm)
+        val promptContributions = buildPromptContributions(interaction, llm)
+
+        val messageSender = createMessageSender(llm, interaction.llm, llmRequestEvent)
+
+        val converter = if (outputClass != String::class.java) {
+            createOutputConverter(outputClass, interaction)
+        } else null
+
+        val schemaFormat = converter?.getFormat()
+
+        // Output parser that extracts thinking blocks and parses the result
+        // For String output: return raw text (with thinking tags preserved)
+        // For other types: converter chain handles thinking suppression for JSON parsing
+        val outputParser: (String) -> ThinkingResponse<O> = { text ->
+            val thinkingBlocks = extractAllThinkingBlocks(text)
+            val result = if (outputClass == String::class.java) {
+                @Suppress("UNCHECKED_CAST")
+                text as O  // Raw text, not sanitized - thinking blocks preserved in response
+            } else {
+                try {
+                    converter!!.convert(text)!!
+                } catch (e: Exception) {
+                    // Preserve thinking blocks in exceptions
+                    throw ThinkingException(
+                        message = "Conversion failed: ${e.message}",
+                        thinkingBlocks = thinkingBlocks
+                    )
+                }
+            }
+            ThinkingResponse(result, thinkingBlocks)
+        }
+
+        val injectedToolDecorator = createInjectedToolDecorator(llmRequestEvent, interaction)
+        val injectionStrategy = createInjectionStrategy(interaction)
+
+        val toolLoop = toolLoopFactory.create(
+            llmMessageSender = messageSender,
+            objectMapper = objectMapper,
+            injectionStrategy = injectionStrategy,
+            maxIterations = interaction.maxToolIterations,
+            toolDecorator = injectedToolDecorator,
+            inspectors = interaction.inspectors,
+            transformers = interaction.transformers,
+        )
+
+        val initialMessages = buildInitialMessages(promptContributions, messages, schemaFormat)
+
+        emitCallEvent(llmRequestEvent, promptContributions, messages, schemaFormat)
+
+        // Guardrails: Pre-validation of user input
+        val userMessages = messages.filterIsInstance<com.embabel.chat.UserMessage>()
+        validateUserInput(userMessages, interaction, llmRequestEvent?.agentProcess?.blackboard)
+
+        val tools = interaction.tools
+        val toolLoopStartEvent = publishToolLoopStartEvent(llmRequestEvent, tools, interaction, outputClass)
+
+        val result = toolLoop.execute(
+            initialMessages = initialMessages,
+            initialTools = tools,
+            outputParser = outputParser,
+        )
+
+        handleToolLoopCompletion(toolLoopStartEvent, result, llmRequestEvent, llm)
+
+        val thinkingResponse = result.result
+
+        // Guardrails: Post-validation of assistant response (includes thinking blocks)
+        validateAssistantResponse(thinkingResponse, interaction, llmRequestEvent?.agentProcess?.blackboard)
+
+        return thinkingResponse
+    }
+
+    override fun <O> doTransformWithThinkingIfPossible(
+        messages: List<Message>,
+        interaction: LlmInteraction,
+        outputClass: Class<O>,
+        llmRequestEvent: LlmRequestEvent<O>?,
+    ): Result<ThinkingResponse<O>> {
+        // Critical implementation requirements:
+        // 1. LLM can't create object → return thinking blocks (if any)
+        // 2. Thinking block extraction fails → wrap exception with captured thinking (could be empty)
+        TODO("Use OperationContextDelegate path for now")
     }
 
     /**
@@ -542,6 +580,91 @@ open class ToolLoopLlmOperations(
             return llmCall.generateExamples != false
         }
         return llmCall.generateExamples == true
+    }
+
+    // ========== Private helper methods to reduce duplication ==========
+
+    /**
+     * Create a decorator for dynamically injected tools (e.g., from MatryoshkaTool).
+     */
+    private fun createInjectedToolDecorator(
+        llmRequestEvent: LlmRequestEvent<*>?,
+        interaction: LlmInteraction,
+    ): ((Tool) -> Tool)? = llmRequestEvent?.let { event ->
+        { tool: Tool ->
+            toolDecorator.decorate(
+                tool = tool,
+                agentProcess = event.agentProcess,
+                action = event.action,
+                llmOptions = interaction.llm,
+            )
+        }
+    }
+
+    /**
+     * Create the injection strategy based on interaction configuration.
+     */
+    private fun createInjectionStrategy(interaction: LlmInteraction): ToolInjectionStrategy =
+        if (interaction.additionalInjectionStrategies.isNotEmpty()) {
+            ChainedToolInjectionStrategy(
+                listOf(ToolInjectionStrategy.DEFAULT) + interaction.additionalInjectionStrategies
+            )
+        } else {
+            ToolInjectionStrategy.DEFAULT
+        }
+
+    /**
+     * Publish ToolLoopStartEvent and return it for later completion tracking.
+     */
+    private fun <O> publishToolLoopStartEvent(
+        llmRequestEvent: LlmRequestEvent<O>?,
+        tools: List<Tool>,
+        interaction: LlmInteraction,
+        outputClass: Class<O>,
+    ): ToolLoopStartEvent? = llmRequestEvent?.let { event ->
+        ToolLoopStartEvent(
+            agentProcess = event.agentProcess,
+            action = event.action,
+            toolNames = tools.map { it.definition.name },
+            maxIterations = interaction.maxToolIterations,
+            interactionId = interaction.id.value,
+            outputClass = outputClass,
+        ).also { startEvent ->
+            event.agentProcess.processContext.onProcessEvent(startEvent)
+        }
+    }
+
+    /**
+     * Handle tool loop completion: publish completed event, record usage, check for replan.
+     * Throws ReplanRequestedException if replan was requested.
+     */
+    private fun <O> handleToolLoopCompletion(
+        toolLoopStartEvent: ToolLoopStartEvent?,
+        result: com.embabel.agent.spi.loop.ToolLoopResult<O>,
+        llmRequestEvent: LlmRequestEvent<*>?,
+        llm: LlmService<*>,
+    ) {
+        // Publish ToolLoopCompletedEvent after the tool loop
+        toolLoopStartEvent?.let { startEvent ->
+            llmRequestEvent!!.agentProcess.processContext.onProcessEvent(
+                startEvent.completedEvent(
+                    totalIterations = result.totalIterations,
+                    replanRequested = result.replanRequested,
+                )
+            )
+        }
+
+        result.totalUsage?.let { usage ->
+            recordUsage(llm, usage, llmRequestEvent)
+        }
+
+        // If replan was requested, re-throw the exception to propagate to action executor
+        if (result.replanRequested) {
+            throw ReplanRequestedException(
+                reason = result.replanReason ?: "Tool requested replan",
+                blackboardUpdater = result.blackboardUpdater,
+            )
+        }
     }
 
 }

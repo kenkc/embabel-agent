@@ -286,7 +286,7 @@ class ChatClientLlmOperationsThinkingTest {
         val setup = createChatClientLlmOperations(fakeChatModel)
 
         // When: Use doTransformWithThinking (new business logic)
-        val result = setup.llmOperations.doTransformWithThinking<SimpleResult>(
+        val result = setup.llmOperations.doTransformWithThinkingSpringAi<SimpleResult>(
             messages = listOf(UserMessage("Process request")),
             interaction = LlmInteraction(InteractionId("test-thinking")),
             outputClass = SimpleResult::class.java,
@@ -564,7 +564,7 @@ class ChatClientLlmOperationsThinkingTest {
         val setup = createChatClientLlmOperations(fakeChatModel)
 
         // When: Call doTransformWithThinking with malformed thinking
-        val result = setup.llmOperations.doTransformWithThinking<SimpleResult>(
+        val result = setup.llmOperations.doTransformWithThinkingSpringAi<SimpleResult>(
             messages = listOf(UserMessage("Test malformed thinking")),
             interaction = LlmInteraction(InteractionId("malformed-thinking")),
             outputClass = SimpleResult::class.java,
@@ -665,7 +665,7 @@ class ChatClientLlmOperationsThinkingTest {
         val setup = createChatClientLlmOperations(fakeChatModel)
 
         // When: Call doTransformWithThinking with complex mixed content
-        val result = setup.llmOperations.doTransformWithThinking<SimpleResult>(
+        val result = setup.llmOperations.doTransformWithThinkingSpringAi<SimpleResult>(
             messages = listOf(UserMessage("Perform complex analysis")),
             interaction = LlmInteraction(InteractionId("complex-thinking")),
             outputClass = SimpleResult::class.java,
@@ -794,7 +794,7 @@ class ChatClientLlmOperationsThinkingTest {
         val setup = createChatClientLlmOperations(fakeChatModel)
 
         // When: Call doTransformWithThinking with String output class
-        val result = setup.llmOperations.doTransformWithThinking<String>(
+        val result = setup.llmOperations.doTransformWithThinkingSpringAi<String>(
             messages = listOf(UserMessage("Generate string with thinking")),
             interaction = LlmInteraction(InteractionId("string-thinking")),
             outputClass = String::class.java,
@@ -972,7 +972,7 @@ class ChatClientLlmOperationsThinkingTest {
         val llmRequestEvent = mockk<LlmRequestEvent<String>>(relaxed = true)
         every { llmRequestEvent.agentProcess } returns setup.mockAgentProcess
 
-        val result = setup.llmOperations.doTransformWithThinking<String>(
+        val result = setup.llmOperations.doTransformWithThinkingSpringAi<String>(
             messages = listOf(UserMessage("Test thinking input with guardrails")),
             interaction = interaction,
             outputClass = String::class.java,
@@ -1093,7 +1093,7 @@ class ChatClientLlmOperationsThinkingTest {
 
         // When/Then: Should throw ThinkingException with preserved thinking blocks
         try {
-            setup.llmOperations.doTransformWithThinking<SimpleResult>(
+            setup.llmOperations.doTransformWithThinkingSpringAi<SimpleResult>(
                 messages = listOf(UserMessage("Generate malformed response")),
                 interaction = LlmInteraction(InteractionId("thinking-exception-test")),
                 outputClass = SimpleResult::class.java,
@@ -1172,5 +1172,61 @@ class ChatClientLlmOperationsThinkingTest {
         assertEquals(1, exception2.thinkingBlocks.size)
         assertTrue(exception2.thinkingBlocks[0].content.contains("malformed JSON that fails parsing"))
         assertTrue(exception2.message!!.contains("Conversion failed"))
+    }
+
+    @Test
+    fun `doTransformWithThinking should delegate to ToolLoop when useEmbabelToolLoop is true`() {
+        val responseWithThinking = """
+            <think>Testing Embabel tool loop delegation</think>
+            Hello from tool loop
+        """.trimIndent()
+
+        val fakeChatModel = FakeChatModel(responseWithThinking)
+        val setup = createChatClientLlmOperations(fakeChatModel)
+
+        val interaction = LlmInteraction(
+            id = InteractionId("embabel-toolloop-switch"),
+            useEmbabelToolLoop = true,
+        )
+
+        val result = setup.llmOperations.doTransformWithThinking(
+            messages = listOf(UserMessage("Test switch to Embabel tool loop")),
+            interaction = interaction,
+            outputClass = String::class.java,
+            llmRequestEvent = null,
+        )
+
+        assertNotNull(result.result)
+        assertTrue(result.thinkingBlocks.isNotEmpty())
+        assertTrue(result.thinkingBlocks[0].content.contains("Embabel tool loop"))
+    }
+
+    @Test
+    fun `createObjectWithThinking should extract thinking and return result`() {
+        val responseWithThinking = """
+            <think>Analyzing the request for a simple result</think>
+            {"status": "success", "value": 123}
+        """.trimIndent()
+
+        val fakeChatModel = FakeChatModel(responseWithThinking)
+        val setup = createChatClientLlmOperations(fakeChatModel)
+
+        val interaction = LlmInteraction(
+            id = InteractionId("create-object-with-thinking"),
+        )
+
+        val result = setup.llmOperations.createObjectWithThinking(
+            messages = listOf(UserMessage("Create an object with thinking")),
+            interaction = interaction,
+            outputClass = SimpleResult::class.java,
+            agentProcess = setup.mockAgentProcess,
+            action = null,
+        )
+
+        assertNotNull(result.result)
+        assertEquals("success", result.result.status)
+        assertEquals(123, result.result.value)
+        assertTrue(result.thinkingBlocks.isNotEmpty())
+        assertTrue(result.thinkingBlocks[0].content.contains("Analyzing the request"))
     }
 }
