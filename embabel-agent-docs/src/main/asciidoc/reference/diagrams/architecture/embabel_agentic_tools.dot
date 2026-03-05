@@ -1,0 +1,100 @@
+digraph AgenticTools {
+    // Graph settings
+    rankdir=TB;
+    compound=true;
+    fontname="Arial";
+    label="Embabel Agent: Agentic Tool Loop";
+    labelloc=t;
+    fontsize=16;
+
+    // Node styling
+    node [shape=box, style="filled,rounded", fontname="Arial", margin=0.2, fontsize=11];
+    edge [fontname="Arial", fontsize=10];
+
+    // User / Entry point
+    UserPrompt [fillcolor=lightyellow, label="User Prompt\n+ System Prompt"];
+
+    // LLM
+    LLM [fillcolor=lightblue, label="LLM\n(ChatModel)", shape=ellipse];
+
+    // Tool Loop
+    subgraph cluster_toolloop {
+        label="Tool Loop (DefaultToolLoop)";
+        style="dashed,rounded";
+        color=grey;
+        fontname="Arial";
+        fontsize=12;
+
+        ToolInjection [fillcolor=lavender, label="ToolInjectionStrategy\n(inject/remove tools\neach iteration)"];
+        ToolExecution [fillcolor=lightcoral, label="Tool Execution\n(call selected tool)"];
+        ResultProcessing [fillcolor=lightpink, label="Result Processing\n(append to conversation)"];
+        IterationCheck [fillcolor=lightsteelblue, label="Continue?\n(max iterations,\nno more tool calls)", shape=diamond];
+    }
+
+    // ToolishRag Facade
+    subgraph cluster_toolishrag {
+        label="ToolishRag (LlmReference)";
+        style="filled,rounded";
+        fillcolor=honeydew;
+        color=darkgreen;
+        fontname="Arial";
+        fontsize=12;
+
+        ToolishRagNode [fillcolor=lightgreen, label="ToolishRag\n(facade)"];
+
+        VectorSearchTool [fillcolor=palegreen, label="VectorSearchTools\n(semantic search)"];
+        TextSearchTool [fillcolor=palegreen, label="TextSearchTools\n(keyword search)"];
+        FinderTool [fillcolor=palegreen, label="FinderTools\n(find by ID/type)"];
+        ExpanderTool [fillcolor=palegreen, label="ResultExpanderTools\n(expand context)"];
+        RegexTool [fillcolor=palegreen, label="RegexSearchTools\n(pattern search)"];
+        CustomSearchTool [fillcolor=palegreen, label="Custom SearchTools\n(e.g. Cypher, SQL)"];
+    }
+
+    // Knowledge Store
+    KnowledgeStore [fillcolor=lightsalmon, label="Knowledge Store\n(Neo4j, Weaviate,\nPgVector, etc.)", shape=cylinder];
+
+    // Eager Search (optional preload)
+    EagerSearch [fillcolor=khaki, label="EagerSearch\n(optional preload\ninto hints)", style="filled,dashed,rounded"];
+
+    // Final Response
+    FinalResponse [fillcolor=lightgoldenrodyellow, label="Final Response\n(grounded in\nretrieved data)"];
+
+    // Flow
+    UserPrompt -> LLM [label="1. prompt +\navailable tools"];
+    EagerSearch -> LLM [label="preloaded\nresults", style=dashed];
+
+    LLM -> ToolInjection [label="2. tool call(s)", lhead=cluster_toolloop];
+
+    ToolInjection -> ToolExecution [label="tools ready"];
+
+    // Tool selection goes to ToolishRag
+    ToolExecution -> ToolishRagNode [label="3. invoke\nselected tool", lhead=cluster_toolishrag];
+
+    // ToolishRag delegates to specific tools
+    ToolishRagNode -> VectorSearchTool [style=dashed, arrowhead=none];
+    ToolishRagNode -> TextSearchTool [style=dashed, arrowhead=none];
+    ToolishRagNode -> FinderTool [style=dashed, arrowhead=none];
+    ToolishRagNode -> ExpanderTool [style=dashed, arrowhead=none];
+    ToolishRagNode -> RegexTool [style=dashed, arrowhead=none];
+    ToolishRagNode -> CustomSearchTool [style=dashed, arrowhead=none];
+
+    // Tools query knowledge store
+    VectorSearchTool -> KnowledgeStore;
+    TextSearchTool -> KnowledgeStore;
+    FinderTool -> KnowledgeStore;
+    ExpanderTool -> KnowledgeStore;
+    RegexTool -> KnowledgeStore;
+    CustomSearchTool -> KnowledgeStore;
+
+    // Results flow back
+    KnowledgeStore -> ResultProcessing [label="4. search results"];
+
+    ResultProcessing -> IterationCheck;
+
+    // Loop back or finish
+    IterationCheck -> LLM [label="5. continue\n(try different\nquery/tool)", style=bold, color=blue];
+    IterationCheck -> FinalResponse [label="6. done\n(answer found\nor give up)"];
+
+    // EagerSearch preloads from store
+    EagerSearch -> KnowledgeStore [label="preload", style=dashed];
+}
