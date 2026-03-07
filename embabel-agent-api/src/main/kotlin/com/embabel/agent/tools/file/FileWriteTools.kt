@@ -38,7 +38,7 @@ interface FileWriteTools : DirectoryBased, FileAccessLog, FileChangeLog, SelfToo
     /**
      * Create a file at the relative path under the root
      */
-    @LlmTool(description = "Create a file with the given content")
+    @LlmTool(description = "Create a new file with the given content. Fails if file already exists. Use writeFile to overwrite existing files.")
     fun createFile(
         path: String,
         content: String,
@@ -46,6 +46,19 @@ interface FileWriteTools : DirectoryBased, FileAccessLog, FileChangeLog, SelfToo
         createFile(path, content, overwrite = false)
         recordChange(FileModification(path, FileModificationType.CREATE))
         return "file created"
+    }
+
+    /**
+     * Write content to a file, creating or overwriting as needed.
+     */
+    @LlmTool(description = "Write content to a file, replacing its entire contents if it exists or creating it if it doesn't")
+    fun writeFile(
+        path: String,
+        content: String,
+    ): String {
+        createFile(path, content, overwrite = true)
+        recordChange(FileModification(path, FileModificationType.EDIT))
+        return "file written"
     }
 
     /**
