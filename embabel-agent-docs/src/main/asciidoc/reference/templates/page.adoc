@@ -51,6 +51,44 @@ val distinctFactualAssertions = context.ai()
 ----
 ====
 
+==== Custom Template Renderer
+
+By default, `rendering()` uses the platform's `TemplateRenderer` (a Jinja-based renderer that loads templates from the classpath).
+You can override this on a per-rendering basis using `withTemplateRenderer()`, which lets you supply a custom `TemplateRenderer` implementation.
+
+This is useful when you need to load templates from a different source—for example, pulling templates from a user-specific directory on the file system, or from a database, enabling per-tenant or per-user prompt customization.
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+TemplateRenderer perUserRenderer = createRendererForUser(userId);
+
+String result = context.ai()
+    .rendering("user-greeting")
+    .withTemplateRenderer(perUserRenderer)
+    .generateText(
+            Map.of("userName", userName)
+    );
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val perUserRenderer = createRendererForUser(userId)
+
+val result = context.ai()
+    .rendering("user-greeting")
+    .withTemplateRenderer(perUserRenderer)
+    .generateText(
+            mapOf("userName" to userName)
+    )
+----
+====
+
 TIP: Don't rush to externalize prompts.
 In modern languages with multi-line strings, it's often easier to keep prompts in the codebase.
 Externalizing them can sacrifice type safety and lead to complexity and maintenance challenges.

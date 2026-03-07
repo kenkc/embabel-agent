@@ -23,11 +23,13 @@ import com.embabel.chat.Message
 import com.embabel.chat.SystemMessage
 import com.embabel.chat.UserMessage
 import com.embabel.common.textio.template.CompiledTemplate
+import com.embabel.common.textio.template.TemplateRenderer
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -262,6 +264,68 @@ class DelegatingRenderingTest {
             // Verify that addMessage was never called on the conversation —
             // the trigger prompt should only be in the LLM call, not stored
             verify(exactly = 0) { conversation.addMessage(any()) }
+        }
+    }
+
+    @Nested
+    inner class WithTemplateRendererTest {
+
+        @Test
+        fun `should return new Rendering that uses custom template renderer`() {
+            val customRenderer = mockk<TemplateRenderer>()
+            val customCompiledTemplate = mockk<CompiledTemplate>()
+            val model = mapOf("key" to "value")
+            val renderedText = "custom rendered"
+            val expectedResult = "custom result"
+
+            every { customRenderer.compileLoadedTemplate(templateName) } returns customCompiledTemplate
+            every { customCompiledTemplate.render(model) } returns renderedText
+            every { mockDelegate.createObject(any(), String::class.java) } returns expectedResult
+
+            val original = createTemplateOperations()
+            val customRendering = original.withTemplateRenderer(customRenderer)
+
+            val result = customRendering.generateText(model)
+
+            assertEquals(expectedResult, result)
+            verify { customRenderer.compileLoadedTemplate(templateName) }
+            verify { customCompiledTemplate.render(model) }
+        }
+
+        @Test
+        fun `should not modify original Rendering instance`() {
+            val customRenderer = mockk<TemplateRenderer>()
+            val customCompiledTemplate = mockk<CompiledTemplate>()
+
+            every { customRenderer.compileLoadedTemplate(templateName) } returns customCompiledTemplate
+
+            val original = createTemplateOperations()
+            val customRendering = original.withTemplateRenderer(customRenderer)
+
+            assertNotSame(original, customRendering)
+        }
+
+        @Test
+        fun `custom renderer should be used for createObject`() {
+            val customRenderer = mockk<TemplateRenderer>()
+            val customCompiledTemplate = mockk<CompiledTemplate>()
+            val model = mapOf("name" to "World")
+            val renderedText = "Hello World from custom"
+            val expectedResult = "custom object"
+
+            every { customRenderer.compileLoadedTemplate(templateName) } returns customCompiledTemplate
+            every { customCompiledTemplate.render(model) } returns renderedText
+            every { mockDelegate.createObject(any(), String::class.java) } returns expectedResult
+
+            val original = createTemplateOperations()
+            val customRendering = original.withTemplateRenderer(customRenderer)
+
+            val result = customRendering.createObject(String::class.java, model)
+
+            assertEquals(expectedResult, result)
+            verify { customCompiledTemplate.render(model) }
+            // Verify the delegate's default renderer was NOT used for the custom rendering
+            verify(exactly = 0) { mockCompiledTemplate.render(model) }
         }
     }
 }

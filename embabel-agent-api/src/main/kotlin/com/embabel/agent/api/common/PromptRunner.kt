@@ -20,6 +20,8 @@ import com.embabel.agent.api.reference.LlmReference
 import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.api.tool.ToolObject
 import com.embabel.agent.api.tool.agentic.ToolChaining
+import com.embabel.agent.api.tool.callback.ToolLoopInspector
+import com.embabel.agent.api.tool.callback.ToolLoopTransformer
 import com.embabel.agent.api.validation.guardrails.GuardRail
 import com.embabel.agent.core.ToolGroup
 import com.embabel.agent.core.ToolGroupRequirement
@@ -27,8 +29,6 @@ import com.embabel.agent.core.support.LlmUse
 import com.embabel.chat.AssistantMessage
 import com.embabel.chat.Conversation
 import com.embabel.chat.Message
-import com.embabel.agent.api.tool.callback.ToolLoopInspector
-import com.embabel.agent.api.tool.callback.ToolLoopTransformer
 import com.embabel.chat.UserMessage
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.prompt.PromptContributor
@@ -36,6 +36,7 @@ import com.embabel.common.ai.prompt.PromptElement
 import com.embabel.common.core.thinking.ThinkingCapability
 import com.embabel.common.core.thinking.ThinkingResponse
 import com.embabel.common.core.types.ZeroToOne
+import com.embabel.common.textio.template.TemplateRenderer
 import com.embabel.common.util.loggerFor
 import java.lang.reflect.Field
 import java.util.function.Predicate
@@ -682,6 +683,13 @@ interface PromptRunner : LlmUse, PromptRunnerOperations, ToolChaining<PromptRunn
      * Instances are obtained via [PromptRunner.rendering].
      */
     interface Rendering {
+
+        /**
+         * Set the template renderer to use for rendering templates in this mode.
+         * By default, this Renderer will use the platform's default TemplateRenderer, but this allows for custom renderers to be used on a per-rendering basis.
+         */
+        fun withTemplateRenderer(templateRenderer: TemplateRenderer): Rendering
+
         /**
          * Create an object of the given type using the given model to render the template
          * and LLM options from context.

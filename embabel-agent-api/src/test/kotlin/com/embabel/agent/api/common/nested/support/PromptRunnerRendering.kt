@@ -30,6 +30,9 @@ internal data class PromptRunnerRendering(
 
     private val compiledTemplate = templateRenderer.compileLoadedTemplate(templateName)
 
+    override fun withTemplateRenderer(templateRenderer: TemplateRenderer): PromptRunner.Rendering =
+        copy(templateRenderer = templateRenderer)
+
     override fun <T> createObject(
         outputClass: Class<T>,
         model: Map<String, Any>,
