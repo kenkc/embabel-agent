@@ -1826,6 +1826,88 @@ class MatryoshkaToolTest {
     }
 
     @Nested
+    inner class FromToolObjectTest {
+
+        @Test
+        fun `creates UnfoldingTool from object with LlmTool methods`() {
+            val result = com.embabel.agent.api.tool.progressive.UnfoldingTool.fromToolObject(
+                instance = PlainToolMethods(),
+                name = "plain_tools",
+                description = "Plain tools description",
+            )
+
+            assertEquals("plain_tools", result.definition.name)
+            assertEquals("Plain tools description", result.definition.description)
+            assertEquals(2, result.innerTools.size)
+            val toolNames = result.innerTools.map { it.definition.name }
+            assertTrue(toolNames.contains("doSearch"))
+            assertTrue(toolNames.contains("doFilter"))
+        }
+
+        @Test
+        fun `uses provided name and description`() {
+            val result = com.embabel.agent.api.tool.progressive.UnfoldingTool.fromToolObject(
+                instance = PlainToolMethods(),
+                name = "custom_name",
+                description = "Custom description",
+            )
+
+            assertEquals("custom_name", result.definition.name)
+            assertEquals("Custom description", result.definition.description)
+        }
+
+        @Test
+        fun `passes through removeOnInvoke`() {
+            val result = com.embabel.agent.api.tool.progressive.UnfoldingTool.fromToolObject(
+                instance = PlainToolMethods(),
+                name = "tools",
+                description = "Tools",
+                removeOnInvoke = false,
+            )
+
+            assertFalse(result.removeOnInvoke)
+        }
+
+        @Test
+        fun `passes through childToolUsageNotes`() {
+            val result = com.embabel.agent.api.tool.progressive.UnfoldingTool.fromToolObject(
+                instance = PlainToolMethods(),
+                name = "tools",
+                description = "Tools",
+                childToolUsageNotes = "Use doSearch for queries, doFilter for filtering.",
+            )
+
+            assertEquals("Use doSearch for queries, doFilter for filtering.", result.childToolUsageNotes)
+        }
+
+        @Test
+        fun `throws on object with no LlmTool methods`() {
+            assertThrows<IllegalArgumentException> {
+                com.embabel.agent.api.tool.progressive.UnfoldingTool.fromToolObject(
+                    instance = NoLlmToolMethods(),
+                    name = "empty",
+                    description = "Empty",
+                )
+            }
+        }
+
+        @Test
+        fun `works with interface implementation`() {
+            val result = com.embabel.agent.api.tool.progressive.UnfoldingTool.fromToolObject(
+                instance = ToolInterfaceImpl(),
+                name = "interface_tools",
+                description = "Tools from interface",
+            )
+
+            assertEquals("interface_tools", result.definition.name)
+            assertEquals(2, result.innerTools.size)
+            val toolNames = result.innerTools.map { it.definition.name }
+            assertTrue(toolNames.contains("interfaceSearch"))
+            assertTrue(toolNames.contains("interfaceCount"))
+        }
+    }
+
+    @Nested
     inner class `withToolObject and UnfoldingTools annotation` {
 
         @Test
@@ -2046,3 +2128,27 @@ class UnfoldingAnnotatedTools {
     @LlmTool(description = "Count items")
     fun count(): String = "42"
 }
+
+// Test fixtures for FromToolObjectTest
+
+class PlainToolMethods {
+    @LlmTool(description = "Search for items")
+    fun doSearch(query: String): String = "Results for: $query"
+
+    @LlmTool(description = "Filter results")
+    fun doFilter(criteria: String): String = "Filtered by: $criteria"
+}
+
+class NoLlmToolMethods {
+    fun regularMethod(): String = "not a tool"
+}
+
+interface ToolInterface {
+    @LlmTool(description = "Search via interface")
+    fun interfaceSearch(query: String): String = "Found: $query"
+
+    @LlmTool(description = "Count via interface")
+    fun interfaceCount(): String = "42"
+}
+
+class ToolInterfaceImpl : ToolInterface

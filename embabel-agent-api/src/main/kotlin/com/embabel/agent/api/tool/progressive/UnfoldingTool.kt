@@ -294,6 +294,53 @@ interface UnfoldingTool : ProgressiveTool {
         }
 
         /**
+         * Create an UnfoldingTool from any object with `@LlmTool` methods, providing
+         * explicit name and description.
+         *
+         * Unlike [fromInstance], this does NOT require the class to be annotated with
+         * `@UnfoldingTools` or `@MatryoshkaTools`. The name and description are provided
+         * as parameters rather than being derived from a class-level annotation.
+         *
+         * This is useful for wrapping tool objects (e.g., interface implementations with
+         * `@LlmTool` default methods) that cannot or should not be annotated with
+         * `@UnfoldingTools`.
+         *
+         * Example:
+         * ```kotlin
+         * val fileTools = UnfoldingTool.fromToolObject(
+         *     instance = FileWriteTools(),
+         *     name = "file_write_tools",
+         *     description = "Tools for writing files",
+         * )
+         * ```
+         *
+         * @param instance Any object with `@LlmTool` annotated methods
+         * @param name Unique name for the UnfoldingTool
+         * @param description Description explaining when to use this tool category
+         * @param removeOnInvoke Whether to remove this tool after invocation (default true)
+         * @param childToolUsageNotes Optional notes to guide LLM on using the child tools
+         * @return An UnfoldingTool wrapping the annotated methods
+         * @throws IllegalArgumentException if the object has no `@LlmTool` methods
+         */
+        @JvmOverloads
+        open fun fromToolObject(
+            instance: Any,
+            name: String,
+            description: String,
+            removeOnInvoke: Boolean = true,
+            childToolUsageNotes: String? = null,
+        ): UnfoldingTool {
+            val tools = Tool.fromInstance(instance)
+            return of(
+                name = name,
+                description = description,
+                innerTools = tools,
+                removeOnInvoke = removeOnInvoke,
+                childToolUsageNotes = childToolUsageNotes,
+            )
+        }
+
+        /**
          * Create an UnfoldingTool from an instance annotated with [@MatryoshkaTools][MatryoshkaTools].
          *
          * The instance's class must be annotated with `@MatryoshkaTools` and contain

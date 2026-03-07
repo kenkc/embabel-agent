@@ -3185,6 +3185,84 @@ context.ai()
 ----
 ====
 
+===== Wrapping Tool Objects with fromToolObject()
+
+`UnfoldingTool.fromInstance()` requires the class to be annotated with `@UnfoldingTools`.
+This doesn't work for objects like interface implementations with `@LlmTool` default methods that you cannot or should not annotate with `@UnfoldingTools`.
+
+Use `fromToolObject()` to wrap *any* object with `@LlmTool` methods into an `UnfoldingTool`, providing name and description explicitly:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+import com.embabel.agent.api.tool.progressive.UnfoldingTool;
+
+// FileWriteTools is an interface with @LlmTool default methods—
+// it cannot be annotated with @UnfoldingTools
+FileWriteTools fileTools = new FileWriteToolsImpl(workspace);
+
+var tool = UnfoldingTool.fromToolObject(
+    fileTools,
+    "file_write_tools",
+    "Tools for writing and managing files. Invoke to see specific operations."
+);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+import com.embabel.agent.api.tool.progressive.UnfoldingTool
+
+// FileWriteTools is an interface with @LlmTool default methods—
+// it cannot be annotated with @UnfoldingTools
+val fileTools: FileWriteTools = FileWriteToolsImpl(workspace)
+
+val tool = UnfoldingTool.fromToolObject(
+    instance = fileTools,
+    name = "file_write_tools",
+    description = "Tools for writing and managing files. Invoke to see specific operations.",
+)
+----
+====
+
+All standard options are available:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+var tool = UnfoldingTool.fromToolObject(
+    fileTools,
+    "file_write_tools",
+    "Tools for writing and managing files.",
+    false,                                          // removeOnInvoke
+    "Use writeFile for new files, appendFile for existing ones."  // childToolUsageNotes
+);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val tool = UnfoldingTool.fromToolObject(
+    instance = fileTools,
+    name = "file_write_tools",
+    description = "Tools for writing and managing files.",
+    removeOnInvoke = false,
+    childToolUsageNotes = "Use writeFile for new files, appendFile for existing ones.",
+)
+----
+====
+
+TIP: Use `fromToolObject()` when the tool class is an interface, a third-party class, or any class where adding `@UnfoldingTools` is impractical.
+Use `fromInstance()` when you control the class and can add the `@UnfoldingTools` annotation.
+
 ===== Nested UnfoldingTools
 
 UnfoldingTools can be nested for multi-level progressive disclosure.
