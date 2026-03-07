@@ -18,7 +18,6 @@ package com.embabel.agent.api.tool.progressive;
 import com.embabel.agent.api.annotation.LlmTool;
 import com.embabel.agent.api.annotation.UnfoldingTools;
 import com.embabel.agent.api.tool.Tool;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +30,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests that UnfoldingTool factory methods are callable from Java
  * via static method syntax (i.e., {@code UnfoldingTool.method(...)}
  * not {@code UnfoldingTool.Companion.method(...)}).
+ * <p>
+ * Tests both the short-param convenience overloads (with defaults)
+ * and the full-param versions.
  */
 class UnfoldingToolJavaTest {
 
@@ -62,26 +64,25 @@ class UnfoldingToolJavaTest {
     class OfTest {
 
         @Test
-        void ofIsCallableAsStaticMethod() {
+        void ofShortFormIsCallableAsStaticMethod() {
             Tool inner = Tool.create("inner", "Inner tool",
                 Tool.InputSchema.empty(), input -> Tool.Result.text("result"));
 
             UnfoldingTool tool = UnfoldingTool.of(
                 "my_tools",
                 "My tools",
-                List.of(inner),
-                true,
-                null
+                List.of(inner)
             );
 
             assertEquals("my_tools", tool.getDefinition().getName());
             assertEquals("My tools", tool.getDefinition().getDescription());
             assertEquals(1, tool.getInnerTools().size());
             assertTrue(tool.getRemoveOnInvoke());
+            assertNull(tool.getChildToolUsageNotes());
         }
 
         @Test
-        void ofWithCustomOptionsIsCallableAsStaticMethod() {
+        void ofFullFormIsCallableAsStaticMethod() {
             Tool inner = Tool.create("inner", "Inner tool",
                 Tool.InputSchema.empty(), input -> Tool.Result.text("result"));
 
@@ -103,18 +104,18 @@ class UnfoldingToolJavaTest {
     class FromToolObjectTest {
 
         @Test
-        void fromToolObjectIsCallableAsStaticMethod() {
+        void fromToolObjectShortFormIsCallableAsStaticMethod() {
             UnfoldingTool tool = UnfoldingTool.fromToolObject(
                 new PlainTools(),
                 "plain_tools",
-                "Plain tool group",
-                true,
-                null
+                "Plain tool group"
             );
 
             assertEquals("plain_tools", tool.getDefinition().getName());
             assertEquals("Plain tool group", tool.getDefinition().getDescription());
             assertEquals(2, tool.getInnerTools().size());
+            assertTrue(tool.getRemoveOnInvoke());
+            assertNull(tool.getChildToolUsageNotes());
 
             List<String> names = tool.getInnerTools().stream()
                 .map(t -> t.getDefinition().getName())
@@ -124,7 +125,7 @@ class UnfoldingToolJavaTest {
         }
 
         @Test
-        void fromToolObjectWithCustomOptionsIsCallableAsStaticMethod() {
+        void fromToolObjectFullFormIsCallableAsStaticMethod() {
             UnfoldingTool tool = UnfoldingTool.fromToolObject(
                 new PlainTools(),
                 "plain_tools",
@@ -142,9 +143,7 @@ class UnfoldingToolJavaTest {
             UnfoldingTool tool = UnfoldingTool.fromToolObject(
                 new PlainTools(),
                 "tools",
-                "Tools",
-                true,
-                null
+                "Tools"
             );
 
             Tool searchTool = tool.getInnerTools().stream()
@@ -163,7 +162,7 @@ class UnfoldingToolJavaTest {
     class ByCategoryTest {
 
         @Test
-        void byCategoryIsCallableAsStaticMethod() {
+        void byCategoryShortFormIsCallableAsStaticMethod() {
             Tool readTool = Tool.create("read", "Read data",
                 Tool.InputSchema.empty(), input -> Tool.Result.text("read"));
             Tool writeTool = Tool.create("write", "Write data",
@@ -175,14 +174,30 @@ class UnfoldingToolJavaTest {
                 Map.of(
                     "read", List.of(readTool),
                     "write", List.of(writeTool)
-                ),
-                "category",
-                true,
-                null
+                )
             );
 
             assertEquals("data_ops", tool.getDefinition().getName());
             assertEquals(2, tool.getInnerTools().size());
+        }
+
+        @Test
+        void byCategoryFullFormIsCallableAsStaticMethod() {
+            Tool readTool = Tool.create("read", "Read data",
+                Tool.InputSchema.empty(), input -> Tool.Result.text("read"));
+
+            UnfoldingTool tool = UnfoldingTool.byCategory(
+                "data_ops",
+                "Data operations",
+                Map.of("read", List.of(readTool)),
+                "type",
+                false,
+                "Pick a category"
+            );
+
+            assertEquals("data_ops", tool.getDefinition().getName());
+            assertFalse(tool.getRemoveOnInvoke());
+            assertEquals("Pick a category", tool.getChildToolUsageNotes());
         }
     }
 
@@ -190,11 +205,8 @@ class UnfoldingToolJavaTest {
     class FromInstanceTest {
 
         @Test
-        void fromInstanceIsCallableAsStaticMethod() {
-            UnfoldingTool tool = UnfoldingTool.fromInstance(
-                new AnnotatedTools(),
-                new ObjectMapper()
-            );
+        void fromInstanceShortFormIsCallableAsStaticMethod() {
+            UnfoldingTool tool = UnfoldingTool.fromInstance(new AnnotatedTools());
 
             assertEquals("annotated_tools", tool.getDefinition().getName());
             assertEquals(1, tool.getInnerTools().size());
@@ -205,11 +217,8 @@ class UnfoldingToolJavaTest {
     class SafelyFromInstanceTest {
 
         @Test
-        void safelyFromInstanceIsCallableAsStaticMethod() {
-            UnfoldingTool tool = UnfoldingTool.safelyFromInstance(
-                new AnnotatedTools(),
-                new ObjectMapper()
-            );
+        void safelyFromInstanceShortFormIsCallableAsStaticMethod() {
+            UnfoldingTool tool = UnfoldingTool.safelyFromInstance(new AnnotatedTools());
 
             assertNotNull(tool);
             assertEquals("annotated_tools", tool.getDefinition().getName());
@@ -217,10 +226,7 @@ class UnfoldingToolJavaTest {
 
         @Test
         void safelyFromInstanceReturnsNullForNonAnnotatedClass() {
-            UnfoldingTool tool = UnfoldingTool.safelyFromInstance(
-                new PlainTools(),
-                new ObjectMapper()
-            );
+            UnfoldingTool tool = UnfoldingTool.safelyFromInstance(new PlainTools());
 
             assertNull(tool);
         }

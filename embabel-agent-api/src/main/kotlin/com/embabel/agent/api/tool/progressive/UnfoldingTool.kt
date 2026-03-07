@@ -176,7 +176,6 @@ interface UnfoldingTool : ProgressiveTool {
          * @param removeOnInvoke Whether to remove this tool after invocation (default true)
          * @param childToolUsageNotes Optional notes to guide LLM on using the child tools
          */
-        @JvmOverloads
         open fun of(
             name: String,
             description: String,
@@ -228,7 +227,6 @@ interface UnfoldingTool : ProgressiveTool {
          * @param childToolUsageNotes Optional notes to guide LLM on using the child tools
          * @param selector Function to select tools based on input
          */
-        @JvmOverloads
         open fun selectable(
             name: String,
             description: String,
@@ -259,7 +257,6 @@ interface UnfoldingTool : ProgressiveTool {
          * @param removeOnInvoke Whether to remove this tool after invocation
          * @param childToolUsageNotes Optional notes to guide LLM on using the child tools
          */
-        @JvmOverloads
         open fun byCategory(
             name: String,
             description: String,
@@ -323,7 +320,6 @@ interface UnfoldingTool : ProgressiveTool {
          * @return An UnfoldingTool wrapping the annotated methods
          * @throws IllegalArgumentException if the object has no `@LlmTool` methods
          */
-        @JvmOverloads
         open fun fromToolObject(
             instance: Any,
             name: String,
@@ -390,7 +386,6 @@ interface UnfoldingTool : ProgressiveTool {
          * @throws IllegalArgumentException if the class is not annotated with `@MatryoshkaTools`
          *         or has no `@LlmTool` methods
          */
-        @JvmOverloads
         open fun fromInstance(
             instance: Any,
             objectMapper: ObjectMapper = jacksonObjectMapper(),
@@ -409,7 +404,6 @@ interface UnfoldingTool : ProgressiveTool {
          * @param objectMapper ObjectMapper for JSON parsing (optional)
          * @return An UnfoldingTool if the instance is properly annotated, null otherwise
          */
-        @JvmOverloads
         open fun safelyFromInstance(
             instance: Any,
             objectMapper: ObjectMapper = jacksonObjectMapper(),
@@ -719,6 +713,8 @@ interface UnfoldingTool : ProgressiveTool {
 
     companion object : Factory() {
 
+        // Full-param overrides (all parameters required from Java)
+
         @JvmStatic
         override fun of(
             name: String,
@@ -760,6 +756,37 @@ interface UnfoldingTool : ProgressiveTool {
             instance: Any,
             objectMapper: ObjectMapper,
         ): UnfoldingTool? = super.safelyFromInstance(instance, objectMapper)
+
+        // Short-param convenience overloads for Java callers
+
+        @JvmStatic
+        fun of(
+            name: String,
+            description: String,
+            innerTools: List<Tool>,
+        ): UnfoldingTool = super.of(name, description, innerTools, true, null)
+
+        @JvmStatic
+        fun byCategory(
+            name: String,
+            description: String,
+            toolsByCategory: Map<String, List<Tool>>,
+        ): UnfoldingTool = super.byCategory(name, description, toolsByCategory, "category", true, null)
+
+        @JvmStatic
+        fun fromToolObject(
+            instance: Any,
+            name: String,
+            description: String,
+        ): UnfoldingTool = super.fromToolObject(instance, name, description, true, null)
+
+        @JvmStatic
+        fun fromInstance(instance: Any): UnfoldingTool =
+            super.fromInstance(instance, jacksonObjectMapper())
+
+        @JvmStatic
+        fun safelyFromInstance(instance: Any): UnfoldingTool? =
+            super.safelyFromInstance(instance, jacksonObjectMapper())
     }
 }
 

@@ -3207,9 +3207,7 @@ FileWriteTools fileTools = new FileWriteToolsImpl(workspace);
 var tool = UnfoldingTool.fromToolObject(
     fileTools,
     "file_write_tools",
-    "Tools for writing and managing files. Invoke to see specific operations.",
-    true,   // removeOnInvoke
-    null    // childToolUsageNotes
+    "Tools for writing and managing files. Invoke to see specific operations."
 );
 ----
 
