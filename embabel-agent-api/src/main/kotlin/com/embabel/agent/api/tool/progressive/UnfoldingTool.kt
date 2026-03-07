@@ -23,6 +23,7 @@ import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.core.AgentProcess
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.BeanUtils
 import org.springframework.core.KotlinDetector
@@ -450,6 +451,7 @@ interface UnfoldingTool : ProgressiveTool {
                     categoryParameter = unfoldingAnnotation.categoryParameter,
                     childToolUsageNotes = unfoldingAnnotation.childToolUsageNotes,
                 )
+
                 matryoshkaAnnotation != null -> AnnotationValues(
                     name = matryoshkaAnnotation.name,
                     description = matryoshkaAnnotation.description,
@@ -457,6 +459,7 @@ interface UnfoldingTool : ProgressiveTool {
                     categoryParameter = matryoshkaAnnotation.categoryParameter,
                     childToolUsageNotes = matryoshkaAnnotation.childToolUsageNotes,
                 )
+
                 else -> throw IllegalArgumentException(
                     "Class ${klass.simpleName} is not annotated with @MatryoshkaTools or @UnfoldingTools"
                 )
@@ -579,6 +582,7 @@ interface UnfoldingTool : ProgressiveTool {
                     categoryParameter = unfoldingAnnotation.categoryParameter,
                     childToolUsageNotes = unfoldingAnnotation.childToolUsageNotes,
                 )
+
                 matryoshkaAnnotation != null -> AnnotationValues(
                     name = matryoshkaAnnotation.name,
                     description = matryoshkaAnnotation.description,
@@ -586,6 +590,7 @@ interface UnfoldingTool : ProgressiveTool {
                     categoryParameter = matryoshkaAnnotation.categoryParameter,
                     childToolUsageNotes = matryoshkaAnnotation.childToolUsageNotes,
                 )
+
                 else -> throw IllegalArgumentException(
                     "Class ${clazz.simpleName} is not annotated with @MatryoshkaTools or @UnfoldingTools"
                 )
@@ -693,8 +698,9 @@ interface UnfoldingTool : ProgressiveTool {
         }
 
         protected companion object {
+
             @JvmStatic
-            protected val logger = LoggerFactory.getLogger(UnfoldingTool::class.java)
+            protected val logger: Logger = LoggerFactory.getLogger(UnfoldingTool::class.java)
 
             @JvmStatic
             protected fun extractCategory(input: String, paramName: String): String? {
@@ -711,7 +717,50 @@ interface UnfoldingTool : ProgressiveTool {
         }
     }
 
-    companion object : Factory()
+    companion object : Factory() {
+
+        @JvmStatic
+        override fun of(
+            name: String,
+            description: String,
+            innerTools: List<Tool>,
+            removeOnInvoke: Boolean,
+            childToolUsageNotes: String?,
+        ): UnfoldingTool = super.of(name, description, innerTools, removeOnInvoke, childToolUsageNotes)
+
+        @JvmStatic
+        override fun byCategory(
+            name: String,
+            description: String,
+            toolsByCategory: Map<String, List<Tool>>,
+            categoryParameter: String,
+            removeOnInvoke: Boolean,
+            childToolUsageNotes: String?,
+        ): UnfoldingTool = super.byCategory(
+            name, description, toolsByCategory, categoryParameter, removeOnInvoke, childToolUsageNotes,
+        )
+
+        @JvmStatic
+        override fun fromToolObject(
+            instance: Any,
+            name: String,
+            description: String,
+            removeOnInvoke: Boolean,
+            childToolUsageNotes: String?,
+        ): UnfoldingTool = super.fromToolObject(instance, name, description, removeOnInvoke, childToolUsageNotes)
+
+        @JvmStatic
+        override fun fromInstance(
+            instance: Any,
+            objectMapper: ObjectMapper,
+        ): UnfoldingTool = super.fromInstance(instance, objectMapper)
+
+        @JvmStatic
+        override fun safelyFromInstance(
+            instance: Any,
+            objectMapper: ObjectMapper,
+        ): UnfoldingTool? = super.safelyFromInstance(instance, objectMapper)
+    }
 }
 
 /**
