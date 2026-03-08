@@ -182,6 +182,7 @@ interface UnfoldingTool : ProgressiveTool {
             innerTools: List<Tool>,
             removeOnInvoke: Boolean = true,
             childToolUsageNotes: String? = null,
+            includeContextTool: Boolean = true,
         ): UnfoldingTool = SimpleUnfoldingTool(
             definition = Tool.Definition(
                 name = name,
@@ -191,6 +192,7 @@ interface UnfoldingTool : ProgressiveTool {
             innerTools = innerTools,
             removeOnInvoke = removeOnInvoke,
             childToolUsageNotes = childToolUsageNotes,
+            includeContextTool = includeContextTool,
         )
 
         /**
@@ -722,7 +724,8 @@ interface UnfoldingTool : ProgressiveTool {
             innerTools: List<Tool>,
             removeOnInvoke: Boolean,
             childToolUsageNotes: String?,
-        ): UnfoldingTool = super.of(name, description, innerTools, removeOnInvoke, childToolUsageNotes)
+            includeContextTool: Boolean,
+        ): UnfoldingTool = super.of(name, description, innerTools, removeOnInvoke, childToolUsageNotes, includeContextTool)
 
         @JvmStatic
         override fun byCategory(
@@ -764,7 +767,16 @@ interface UnfoldingTool : ProgressiveTool {
             name: String,
             description: String,
             innerTools: List<Tool>,
-        ): UnfoldingTool = super.of(name, description, innerTools, true, null)
+        ): UnfoldingTool = super.of(name, description, innerTools, true, null, true)
+
+        @JvmStatic
+        fun of(
+            name: String,
+            description: String,
+            innerTools: List<Tool>,
+            removeOnInvoke: Boolean,
+            childToolUsageNotes: String?,
+        ): UnfoldingTool = super.of(name, description, innerTools, removeOnInvoke, childToolUsageNotes, true)
 
         @JvmStatic
         fun byCategory(
@@ -799,6 +811,7 @@ internal class SimpleUnfoldingTool(
     override val innerTools: List<Tool>,
     override val removeOnInvoke: Boolean,
     override val childToolUsageNotes: String? = null,
+    override val includeContextTool: Boolean = true,
 ) : MatryoshkaTool {
 
     override fun call(input: String): Tool.Result {
@@ -818,6 +831,7 @@ internal class SelectableUnfoldingTool(
     override val innerTools: List<Tool>,
     override val removeOnInvoke: Boolean,
     override val childToolUsageNotes: String? = null,
+    override val includeContextTool: Boolean = true,
     private val selector: (String) -> List<Tool>,
 ) : MatryoshkaTool {
 
