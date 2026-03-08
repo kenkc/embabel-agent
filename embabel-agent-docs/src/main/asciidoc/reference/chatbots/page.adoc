@@ -928,6 +928,38 @@ Templates allow:
 - Reusable prompt elements (guardrails, personalization)
 - Prompt iteration without code changes
 
+===== Resilient Responses with `respond`
+
+In a chatbot, it's critical never to leave the user without a reply.
+The `respond` method on `Rendering` wraps `respondWithSystemPrompt` with error handling, so that an LLM or infrastructure failure still returns an `AssistantMessage` to the user rather than propagating an exception:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+var assistantMessage = context.ai()
+        .rendering("ragbot")
+        .respond(conversation, model, error -> {
+            logger.error("Failed to generate response", error);
+            return new AssistantMessage("Sorry, something went wrong. Please try again.");
+        });
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val assistantMessage = context.ai()
+    .rendering("ragbot")
+    .respond(conversation, model) { error ->
+        logger.error("Failed to generate response", error)
+        AssistantMessage("Sorry, something went wrong. Please try again.")
+    }
+----
+====
+
 ===== Template Structure Example
 
 A typical chatbot template structure from the rag-demo project:

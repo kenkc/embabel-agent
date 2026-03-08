@@ -729,6 +729,24 @@ interface PromptRunner : LlmUse, PromptRunnerOperations, ToolChaining<PromptRunn
         ): AssistantMessage
 
         /**
+         * Safely respond to the user in the conversation using the rendered template as system prompt, returning an error message if something goes wrong.
+         * Cannot throw an exception.
+         * @param conversation the conversation so far
+         * @param model the model data to render the system prompt template with.
+         * @param onFailure a function that takes the error and returns an AssistantMessage to be sent back to the user in case of failure. This allows for graceful error handling and user feedback without throwing exceptions.
+         */
+        fun respond(
+            conversation: Conversation,
+            model: Map<String, Any>,
+            onFailure: ((Throwable) -> AssistantMessage),
+        ): AssistantMessage = try {
+            respondWithSystemPrompt(conversation, model)
+        } catch (error: Throwable) {
+            loggerFor<Rendering>().warn("Failed to respond with system prompt", error)
+            onFailure(error)
+        }
+
+        /**
          * Respond to a system-initiated trigger using the rendered template as system prompt.
          * The trigger prompt is appended as a user message to the LLM call but not stored in the conversation.
          *

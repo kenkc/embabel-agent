@@ -29,6 +29,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -326,6 +327,47 @@ class DelegatingRenderingTest {
             verify { customCompiledTemplate.render(model) }
             // Verify the delegate's default renderer was NOT used for the custom rendering
             verify(exactly = 0) { mockCompiledTemplate.render(model) }
+        }
+    }
+
+    @Nested
+    inner class RespondTest {
+
+        @Test
+        fun `respond should return AssistantMessage on success`() {
+            val model = mapOf("key" to "value")
+            val renderedText = "system prompt"
+            val conversation = mockk<Conversation>()
+            val conversationMessages = listOf(UserMessage("hello"))
+            every { conversation.messages } returns conversationMessages
+
+            every { mockCompiledTemplate.render(model) } returns renderedText
+            every { mockDelegate.createObject(any(), String::class.java) } returns "response"
+
+            val operations = createTemplateOperations()
+            val result = operations.respond(conversation, model) { AssistantMessage("error") }
+
+            assertInstanceOf(AssistantMessage::class.java, result)
+            assertEquals("response", result.content)
+        }
+
+        @Test
+        fun `respond should return AssistantMessage from onFailure when delegate throws`() {
+            val model = mapOf("key" to "value")
+            val renderedText = "system prompt"
+            val conversation = mockk<Conversation>()
+            every { conversation.messages } returns listOf(UserMessage("hello"))
+
+            every { mockCompiledTemplate.render(model) } returns renderedText
+            every { mockDelegate.createObject(any(), String::class.java) } throws RuntimeException("LLM error")
+
+            val operations = createTemplateOperations()
+            val result = operations.respond(conversation, model) { error ->
+                AssistantMessage("Handled: ${error.message}")
+            }
+
+            assertInstanceOf(AssistantMessage::class.java, result)
+            assertEquals("Handled: LLM error", result.content)
         }
     }
 }
