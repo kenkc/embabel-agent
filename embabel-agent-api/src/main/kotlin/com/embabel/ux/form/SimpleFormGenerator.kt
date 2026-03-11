@@ -36,8 +36,24 @@ object SimpleFormGenerator : FormGenerator {
     override fun <T : Any> generateForm(dataClass: KClass<T>, title: String): Form {
         val controls = mutableListOf<Control>()
 
+        // Skip non-nullable constructor parameters with defaults (e.g., timestamp = Instant.now())
+        // as these are auto-populated, not user input. Nullable params with defaults (e.g., bio: String? = null)
+        // are optional user fields and should still appear on the form.
+        val autoPopulatedParams = try {
+            dataClass.constructors
+                .maxByOrNull { it.parameters.size }
+                ?.parameters
+                ?.filter { it.isOptional && !it.type.isMarkedNullable }
+                ?.mapNotNull { it.name }
+                ?.toSet()
+                ?: emptySet()
+        } catch (_: Exception) {
+            emptySet()
+        }
+
         val properties = getPropertiesInDeclarationOrder(dataClass)
             .filterNot { it.hasAnnotation<NoFormField>() }
+            .filterNot { it.name in autoPopulatedParams }
 
         properties.forEach { property ->
             controls.add(createControlForProperty(property))

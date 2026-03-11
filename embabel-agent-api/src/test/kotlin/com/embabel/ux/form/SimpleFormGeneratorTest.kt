@@ -323,6 +323,71 @@ class SimpleFormGeneratorTest {
     }
 
     @Nested
+    @DisplayName("Auto-populated Default Parameter Tests")
+    inner class DefaultParameterTests {
+
+        @Test
+        @DisplayName("Should skip non-nullable parameters with defaults")
+        fun shouldSkipNonNullableDefaults() {
+            data class WithAutoPopulated(
+                val name: String,
+                val createdAt: Long = System.currentTimeMillis(),
+            )
+
+            val form = formGenerator.generateForm<WithAutoPopulated>("Test")
+            val controls = form.controls.dropLast(1) // drop submit button
+            assertEquals(1, controls.size)
+            assertEquals("name", (controls[0] as TextField).id)
+        }
+
+        @Test
+        @DisplayName("Should keep nullable parameters with null defaults as optional fields")
+        fun shouldKeepNullableDefaults() {
+            data class WithOptionalField(
+                val name: String,
+                val description: String? = null,
+            )
+
+            val form = formGenerator.generateForm<WithOptionalField>("Test")
+            val controls = form.controls.dropLast(1)
+            assertEquals(2, controls.size)
+            assertEquals("name", (controls[0] as TextField).id)
+            assertTrue((controls[0] as TextField).required)
+            assertEquals("description", (controls[1] as TextField).id)
+            assertFalse((controls[1] as TextField).required)
+        }
+
+        @Test
+        @DisplayName("Should work with Java classes that have no Kotlin defaults")
+        fun shouldWorkWithJavaClasses() {
+            // Java classes have no Kotlin primary constructor, so all properties are included
+            val form = formGenerator.generateForm(
+                dataClass = java.util.AbstractMap.SimpleEntry::class,
+                title = "Java Test",
+            )
+            // Should not throw; controls generated for accessible properties
+            assertNotNull(form)
+        }
+
+        @Test
+        @DisplayName("Should skip multiple non-nullable defaults but keep required and nullable")
+        fun shouldHandleMixedDefaults() {
+            data class MixedDefaults(
+                val required: String,
+                val optional: String? = null,
+                val autoId: Int = 0,
+                val autoFlag: Boolean = true,
+            )
+
+            val form = formGenerator.generateForm<MixedDefaults>("Test")
+            val controls = form.controls.dropLast(1)
+            assertEquals(2, controls.size)
+            assertEquals("required", (controls[0] as TextField).id)
+            assertEquals("optional", (controls[1] as TextField).id)
+        }
+    }
+
+    @Nested
     @DisplayName("Real-World Example Tests")
     inner class RealWorldExampleTests {
 

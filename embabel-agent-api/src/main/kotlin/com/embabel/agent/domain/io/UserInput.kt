@@ -40,12 +40,8 @@ interface AssistantContent : HasContent, Timestamped
  * Starting point for many flows.
  */
 @JsonIgnoreProperties(value = ["timestamp"], allowGetters = true)
-data class UserInput(
+data class UserInput @JvmOverloads constructor(
     @get:JsonPropertyDescription("user input")
     override val content: String,
     override val timestamp: Instant = Instant.now(),
-) : SystemInput, UserContent {
-
-    // For Java
-    constructor (content: String) : this(content, Instant.now())
-}
+) : SystemInput, UserContent
