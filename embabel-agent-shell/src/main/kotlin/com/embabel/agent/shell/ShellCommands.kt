@@ -15,6 +15,7 @@
  */
 package com.embabel.agent.shell
 
+import com.embabel.agent.api.common.Asyncer
 import com.embabel.agent.api.common.ToolsStats
 import com.embabel.agent.api.common.autonomy.*
 import com.embabel.agent.api.tool.ToolCallContext
@@ -40,7 +41,6 @@ import org.springframework.core.env.ConfigurableEnvironment
 import org.springframework.shell.standard.ShellComponent
 import org.springframework.shell.standard.ShellMethod
 import org.springframework.shell.standard.ShellOption
-import java.util.concurrent.CompletableFuture
 import kotlin.system.exitProcess
 
 
@@ -50,6 +50,7 @@ import kotlin.system.exitProcess
 @ShellComponent
 class ShellCommands(
     private val autonomy: Autonomy,
+    private val asyncer: Asyncer,
     private val modelProvider: ModelProvider,
     private val terminalServices: TerminalServices,
     private val environment: ConfigurableEnvironment,
@@ -406,8 +407,8 @@ class ShellCommands(
         try {
             // Clear any active processes
             agentProcesses.clear()
-            // Graceful shutdown
-            CompletableFuture.runAsync {
+            // Graceful shutdown - use asyncer to avoid ForkJoinPool.commonPool
+            asyncer.async {
                 Thread.sleep(100) // Small delay to let response print
                 exitProcess(SpringApplication.exit(context, { 0 }))
             }
