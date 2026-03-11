@@ -15,10 +15,18 @@
  */
 package com.embabel.chat
 
+import com.fasterxml.jackson.annotation.JsonSubTypes
+import com.fasterxml.jackson.annotation.JsonTypeInfo
+
 /**
  * Represents a part of a multimodal message.
  * This sealed interface ensures type safety and extensibility for future media types.
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
+@JsonSubTypes(
+    JsonSubTypes.Type(value = TextPart::class),
+    JsonSubTypes.Type(value = ImagePart::class),
+)
 sealed interface ContentPart
 
 /**
