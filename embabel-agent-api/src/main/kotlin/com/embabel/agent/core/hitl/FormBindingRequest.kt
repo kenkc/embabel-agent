@@ -42,6 +42,7 @@ class FormBindingRequest<O : Any> @JvmOverloads constructor(
     val population: O? = null,
     val validationErrors: List<ValidationError> = emptyList(),
     persistent: Boolean = false,
+    val bindingName: String? = null,
 ) : AbstractAwaitable<Form, FormResponse>(
     payload = form,
     persistent = persistent,
@@ -66,7 +67,11 @@ class FormBindingRequest<O : Any> @JvmOverloads constructor(
         agentProcess: AgentProcess,
     ): ResponseImpact {
         logger.info("Bound form submission to {}", boundInstance)
-        agentProcess += boundInstance
+        if (bindingName != null) {
+            agentProcess[bindingName] = boundInstance
+        } else {
+            agentProcess += boundInstance
+        }
         return ResponseImpact.UPDATED
     }
 
