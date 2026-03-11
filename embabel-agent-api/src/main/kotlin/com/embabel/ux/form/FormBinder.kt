@@ -305,10 +305,15 @@ internal class KotlinFormBinder<T : Any>(
 
             val controlId = formFieldAnnotation?.controlId ?: property.name
             val controlValue = submissionResult.values[controlId]
-                ?: throw FormBinder.FormBindingException("No value found for control id '$controlId' in form submission: $submissionResult")
 
             val parameter = parameterMap[property.name]
                 ?: throw FormBinder.FormBindingException("No matching constructor parameter for property: ${property.name}")
+
+            if (controlValue == null) {
+                // If the parameter is optional (has a default), skip it so callBy() uses the default
+                if (parameter.isOptional) return@forEach
+                throw FormBinder.FormBindingException("No value found for control id '$controlId' in form submission: $submissionResult")
+            }
 
             // Convert the ControlValue to the appropriate type for the parameter
             parameterValues[parameter] = convertToParameterType(controlValue, parameter)

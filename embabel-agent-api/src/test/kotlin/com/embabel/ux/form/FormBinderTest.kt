@@ -236,7 +236,7 @@ class FormBinderTest {
         }
 
         @Test
-        @DisplayName("Should handle optional fields when missing")
+        @DisplayName("Should use defaults for optional fields when missing from submission")
         fun handleOptionalFieldsWhenMissing() {
             // Given
             val rawSubmission = FormSubmission(
@@ -258,9 +258,13 @@ class FormBinderTest {
                 valid = true
             )
 
-            assertThrows<FormBinder.FormBindingException> {
-                submission.bindTo<UserWithOptional>()
-            }
+            // When - optional parameter with default should use its default value
+            val user: UserWithOptional = submission.bindTo()
+
+            // Then
+            assertEquals("Bob", user.name)
+            assertEquals(40, user.age)
+            assertNull(user.bio)
         }
     }
 
