@@ -100,6 +100,7 @@ interface AgentScope : Named, Described, GoalSource, ConditionSource, ActionSour
             conditions = conditions,
             stuckHandler = stuckHandler,
             opaque = opaque,
+            domainTypes = domainTypes.toList(),
         )
         return newAgent
     }
