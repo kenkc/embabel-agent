@@ -25,6 +25,9 @@ import com.embabel.agent.api.common.thinking.support.ThinkingPromptRunnerOperati
 import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.api.tool.ToolObject
 import com.embabel.agent.api.tool.agentic.DomainToolPredicate
+import com.embabel.agent.api.tool.callback.ToolLoopInspector
+import com.embabel.agent.api.tool.callback.ToolLoopTransformer
+import com.embabel.agent.spi.loop.ToolNotFoundPolicy
 import com.embabel.agent.api.validation.guardrails.GuardRail
 import com.embabel.agent.core.ToolGroup
 import com.embabel.agent.core.ToolGroupRequirement
@@ -35,8 +38,6 @@ import com.embabel.agent.spi.support.springai.ChatClientLlmOperations
 import com.embabel.agent.spi.support.springai.streaming.StreamingChatClientOperations
 import com.embabel.chat.ImagePart
 import com.embabel.chat.Message
-import com.embabel.agent.api.tool.callback.ToolLoopInspector
-import com.embabel.agent.api.tool.callback.ToolLoopTransformer
 import com.embabel.chat.UserMessage
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.model.Thinking
@@ -229,6 +230,8 @@ internal data class OperationContextPromptRunner(
     override fun withLlm(llm: LlmOptions): PromptRunner =
         copy(llm = llm)
 
+    override fun withLlmService(llmService: com.embabel.agent.spi.LlmService<*>): PromptRunner = this
+
     override fun withToolGroup(toolGroup: ToolGroupRequirement): PromptRunner =
         copy(toolGroups = this.toolGroups + toolGroup)
 
@@ -385,6 +388,8 @@ internal data class OperationContextPromptRunner(
             transformers = this.transformers + transformers
         )
     }
+
+    override fun withToolNotFoundPolicy(policy: ToolNotFoundPolicy): PromptRunner = this
 
     override fun <T : Any> withToolChainingFrom(
         type: Class<T>,

@@ -22,16 +22,17 @@ import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.api.tool.ToolObject
 import com.embabel.agent.api.tool.agentic.DomainToolPredicate
 import com.embabel.agent.api.tool.agentic.DomainToolSource
+import com.embabel.agent.api.tool.callback.ToolLoopInspector
+import com.embabel.agent.api.tool.callback.ToolLoopTransformer
 import com.embabel.agent.api.validation.guardrails.GuardRail
 import com.embabel.agent.core.ToolGroup
 import com.embabel.agent.core.ToolGroupRequirement
 import com.embabel.agent.core.internal.LlmOperations
 import com.embabel.agent.core.support.LlmUse
 import com.embabel.agent.spi.loop.ToolInjectionStrategy
+import com.embabel.agent.spi.loop.ToolNotFoundPolicy
 import com.embabel.chat.AssistantMessage
 import com.embabel.chat.Message
-import com.embabel.agent.api.tool.callback.ToolLoopInspector
-import com.embabel.agent.api.tool.callback.ToolLoopTransformer
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.prompt.PromptContributor
 import com.embabel.common.core.streaming.StreamingEvent
@@ -39,9 +40,9 @@ import com.embabel.common.core.thinking.ThinkingResponse
 import com.embabel.common.core.types.ZeroToOne
 import com.embabel.common.textio.template.TemplateRenderer
 import com.fasterxml.jackson.databind.ObjectMapper
-import reactor.core.publisher.Flux
 import java.lang.reflect.Field
 import java.util.function.Predicate
+import reactor.core.publisher.Flux
 
 /**
  * Delegate interface for prompt execution functionality.
@@ -99,6 +100,8 @@ internal interface PromptExecutionDelegate : LlmUse {
     fun withToolLoopInspectors(vararg inspectors: ToolLoopInspector): PromptExecutionDelegate
 
     fun withToolLoopTransformers(vararg transformers: ToolLoopTransformer): PromptExecutionDelegate
+
+    fun withToolNotFoundPolicy(policy: ToolNotFoundPolicy): PromptExecutionDelegate
 
     val domainToolSources: List<DomainToolSource<*>>
 
