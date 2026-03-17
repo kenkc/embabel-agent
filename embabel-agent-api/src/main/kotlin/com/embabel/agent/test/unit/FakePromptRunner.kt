@@ -20,6 +20,7 @@ import com.embabel.agent.api.common.support.DelegatingCreating
 import com.embabel.agent.api.common.support.DelegatingRendering
 import com.embabel.agent.api.common.support.PromptExecutionDelegate
 import com.embabel.agent.api.tool.Tool
+import com.embabel.agent.api.tool.ToolCallContext
 import com.embabel.agent.api.tool.ToolObject
 import com.embabel.agent.api.tool.agentic.DomainToolPredicate
 import com.embabel.agent.api.tool.agentic.DomainToolSource
@@ -93,6 +94,7 @@ data class FakePromptRunner(
      */
     val interactionId: InteractionId? = null,
     private val guardRails: List<GuardRail> = emptyList(),
+    private val toolCallContext: ToolCallContext = ToolCallContext.EMPTY,
 ) : PromptRunner {
 
     private val logger = LoggerFactory.getLogger(FakePromptRunner::class.java)
@@ -210,6 +212,11 @@ data class FakePromptRunner(
         override fun withToolLoopInspectors(vararg inspectors: ToolLoopInspector): PromptExecutionDelegate = this
 
         override fun withToolLoopTransformers(vararg transformers: ToolLoopTransformer): PromptExecutionDelegate = this
+
+        override fun withToolCallContext(context: ToolCallContext): PromptExecutionDelegate =
+            this@FakePromptRunner.copy(
+                toolCallContext = this@FakePromptRunner.toolCallContext.merge(context)
+            ).DelegateAdapter()
 
         override val domainToolSources: List<DomainToolSource<*>>
             get() = emptyList()
@@ -413,6 +420,7 @@ data class FakePromptRunner(
             },
             id = interactionId ?: InteractionId(MobyNameGenerator.generateName()),
             generateExamples = generateExamples,
+            toolCallContext = toolCallContext,
         )
 
     override fun rendering(templateName: String): PromptRunner.Rendering {
@@ -442,6 +450,9 @@ data class FakePromptRunner(
     override fun withToolLoopInspectors(vararg inspectors: ToolLoopInspector): PromptRunner = this
 
     override fun withToolLoopTransformers(vararg transformers: ToolLoopTransformer): PromptRunner = this
+
+    override fun withToolCallContext(context: ToolCallContext): PromptRunner =
+        copy(toolCallContext = this.toolCallContext.merge(context))
 
     override fun <T : Any> withToolChainingFrom(
         type: Class<T>,
