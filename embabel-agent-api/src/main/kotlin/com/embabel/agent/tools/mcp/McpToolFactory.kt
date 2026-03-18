@@ -75,7 +75,18 @@ interface McpToolFactory {
         description: String,
         filter: (ToolCallback) -> Boolean,
         removeOnInvoke: Boolean,
+        includeContextTool: Boolean,
     ): UnfoldingTool
+
+    /**
+     * Create an UnfoldingTool from MCP clients with a filter predicate.
+     */
+    fun unfolding(
+        name: String,
+        description: String,
+        filter: (ToolCallback) -> Boolean,
+        removeOnInvoke: Boolean,
+    ): UnfoldingTool = unfolding(name, description, filter, removeOnInvoke, includeContextTool = true)
 
     /**
      * Create an UnfoldingTool from MCP clients with a filter predicate, with removeOnInvoke=true.
@@ -84,7 +95,7 @@ interface McpToolFactory {
         name: String,
         description: String,
         filter: (ToolCallback) -> Boolean,
-    ): UnfoldingTool = unfolding(name, description, filter, true)
+    ): UnfoldingTool = unfolding(name, description, filter, removeOnInvoke = true, includeContextTool = true)
 
     /**
      * Create an UnfoldingTool from MCP clients filtering by tool name regex patterns.

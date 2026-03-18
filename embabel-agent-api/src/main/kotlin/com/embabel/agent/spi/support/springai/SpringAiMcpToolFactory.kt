@@ -34,6 +34,7 @@ class SpringAiMcpToolFactory(
         description: String,
         filter: (ToolCallback) -> Boolean,
         removeOnInvoke: Boolean,
+        includeContextTool: Boolean,
     ): UnfoldingTool {
         val innerTools = loadTools(clients, filter)
         logger.debug(
@@ -47,6 +48,7 @@ class SpringAiMcpToolFactory(
             description = description,
             innerTools = innerTools,
             removeOnInvoke = removeOnInvoke,
+            includeContextTool = includeContextTool,
         )
     }
 
