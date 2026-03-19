@@ -98,10 +98,23 @@ internal class VectorSearchTools @JvmOverloads constructor(
 }
 
 /**
- * Tools to expand chunks around an anchor chunk that has already been retrieved
+ * Tools to expand the context around a chunk that has already been retrieved via search.
+ *
+ * Delegates to a [ResultExpander] implementation, which determines how chunks are
+ * related and ordered. Provides two expansion strategies:
+ * - **Broaden**: retrieves adjacent sibling chunks, giving more context
+ *   from the same level of the content hierarchy (e.g., the paragraphs before and after).
+ * - **Zoom out**: navigates up the content hierarchy to the parent section that contains
+ *   the chunk. This is useful when a chunk matches a query but lacks the broader context
+ *   needed to fully answer it — for example, a chunk mentioning a term defined in the
+ *   enclosing section heading.
+ *
+ * Existing implementations (e.g., `embabel-agent-rag-neo-drivine`) apply sequence order
+ * based on the graph structure of ingested content.
  */
-internal class ResultExpanderTools(
+internal class ResultExpanderTools @JvmOverloads constructor(
     private val resultExpander: ResultExpander,
+    private val maxZoomOutChars: Int = DEFAULT_MAX_ZOOM_OUT_CHARS,
 ) : SearchTools {
 
     @LlmTool(description = "given a chunk ID, expand to surrounding chunks")
@@ -115,16 +128,27 @@ internal class ResultExpanderTools(
         return chunks.joinToString("\n") { "Chunk ID: ${it.id}\nContent: ${it.text}\n" }
     }
 
-    @LlmTool(description = "given a content element ID, expand to parent section")
+    @LlmTool(description = "given a content element ID, expand to parent section. If the result is too large, use vectorSearch or textSearch with a more specific query instead.")
     fun zoomOut(
         @LlmTool.Param(description = "id of the content element to expand") id: String,
     ): String {
         val embeddables = resultExpander.expandResult(id, ResultExpander.Method.ZOOM_OUT, 1)
          .filter { it is Embeddable }
         if (embeddables.isEmpty()) return "No parent section found."
-        return embeddables.joinToString("\n") { contentElement ->
+        val result = embeddables.joinToString("\n") { contentElement ->
             "${contentElement.javaClass.simpleName}: id=${contentElement.id}\nContent: ${(contentElement as Embeddable).embeddableValue()}\n"
         }
+        if (result.length > maxZoomOutChars) {
+            val truncated = result.take(maxZoomOutChars)
+            return "$truncated\n\n[TRUNCATED — parent section is too large (${result.length} chars). " +
+                "Use vectorSearch or textSearch with a more specific query to find the information you need, " +
+                "or use broadenChunk to see adjacent chunks instead.]"
+        }
+        return result
+    }
+
+    companion object {
+        const val DEFAULT_MAX_ZOOM_OUT_CHARS = 25_000
     }
 }
 

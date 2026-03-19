@@ -557,6 +557,84 @@ class ToolishRagTest {
 
             assertEquals("No parent section found.", result)
         }
+
+        @Test
+        fun `zoomOut truncates result exceeding maxZoomOutChars`() {
+            val resultExpander = mockk<ResultExpander>()
+            val largeContent = "x".repeat(1000)
+            val chunk = mockk<Chunk>(relaxed = true)
+            every { chunk.id } returns "chunk-1"
+            every { chunk.embeddableValue() } returns largeContent
+            every {
+                resultExpander.expandResult("chunk-1", ResultExpander.Method.ZOOM_OUT, 1)
+            } returns listOf(chunk)
+
+            val tools = ResultExpanderTools(resultExpander, maxZoomOutChars = 100)
+            val result = tools.zoomOut("chunk-1")
+
+            assertTrue(result.contains("[TRUNCATED"))
+            assertTrue(result.contains("broadenChunk"))
+        }
+
+        @Test
+        fun `zoomOut does not truncate result within maxZoomOutChars`() {
+            val resultExpander = mockk<ResultExpander>()
+            val chunk = mockk<Chunk>(relaxed = true)
+            every { chunk.id } returns "chunk-1"
+            every { chunk.embeddableValue() } returns "short content"
+            every {
+                resultExpander.expandResult("chunk-1", ResultExpander.Method.ZOOM_OUT, 1)
+            } returns listOf(chunk)
+
+            val tools = ResultExpanderTools(resultExpander, maxZoomOutChars = 50_000)
+            val result = tools.zoomOut("chunk-1")
+
+            assertFalse(result.contains("[TRUNCATED"))
+        }
+
+        @Test
+        fun `default maxZoomOutChars is 25000`() {
+            assertEquals(25_000, ResultExpanderTools.DEFAULT_MAX_ZOOM_OUT_CHARS)
+        }
+
+        @Test
+        fun `broadenChunk uses custom chunksToAdd parameter`() {
+            val resultExpander = mockk<ResultExpander>()
+            val chunk = mockk<Chunk>(relaxed = true)
+            every { chunk.id } returns "chunk-1"
+            every { chunk.text } returns "Adjacent content"
+            every {
+                resultExpander.expandResult("chunk-1", ResultExpander.Method.SEQUENCE, 5)
+            } returns listOf(chunk)
+
+            val tools = ResultExpanderTools(resultExpander)
+            val result = tools.broadenChunk("chunk-1", chunksToAdd = 5)
+
+            assertTrue(result.contains("Adjacent content"))
+            verify { resultExpander.expandResult("chunk-1", ResultExpander.Method.SEQUENCE, 5) }
+        }
+
+        @Test
+        fun `broadenChunk returns formatted content for multiple chunks`() {
+            val resultExpander = mockk<ResultExpander>()
+            val chunk1 = mockk<Chunk>(relaxed = true)
+            val chunk2 = mockk<Chunk>(relaxed = true)
+            every { chunk1.id } returns "chunk-1"
+            every { chunk1.text } returns "First chunk"
+            every { chunk2.id } returns "chunk-2"
+            every { chunk2.text } returns "Second chunk"
+            every {
+                resultExpander.expandResult("chunk-1", ResultExpander.Method.SEQUENCE, 2)
+            } returns listOf(chunk1, chunk2)
+
+            val tools = ResultExpanderTools(resultExpander)
+            val result = tools.broadenChunk("chunk-1")
+
+            assertTrue(result.contains("Chunk ID: chunk-1"))
+            assertTrue(result.contains("Chunk ID: chunk-2"))
+            assertTrue(result.contains("First chunk"))
+            assertTrue(result.contains("Second chunk"))
+        }
     }
 
     @Nested
@@ -752,6 +830,34 @@ class ToolishRagTest {
 
             assertEquals("my-rag", toolishRag.name)
             assertEquals("My RAG description", toolishRag.description)
+        }
+
+        @Test
+        fun `should use default maxZoomOutChars`() {
+            val vectorSearch = mockk<VectorSearch>()
+
+            val toolishRag = ToolishRag(
+                name = "test",
+                description = "Test",
+                searchOperations = vectorSearch,
+            )
+
+            assertEquals(ResultExpanderTools.DEFAULT_MAX_ZOOM_OUT_CHARS, toolishRag.maxZoomOutChars)
+        }
+
+        @Test
+        fun `withMaxZoomOutChars returns new instance with updated value`() {
+            val vectorSearch = mockk<VectorSearch>()
+
+            val original = ToolishRag(
+                name = "test",
+                description = "Test",
+                searchOperations = vectorSearch,
+            )
+            val updated = original.withMaxZoomOutChars(50_000)
+
+            assertEquals(50_000, updated.maxZoomOutChars)
+            assertEquals(ResultExpanderTools.DEFAULT_MAX_ZOOM_OUT_CHARS, original.maxZoomOutChars)
         }
     }
 
