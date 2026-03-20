@@ -24,6 +24,8 @@ import com.embabel.agent.api.tool.ToolCallContext
 import com.embabel.agent.api.tool.ToolObject
 import com.embabel.agent.api.tool.agentic.DomainToolPredicate
 import com.embabel.agent.api.tool.agentic.DomainToolSource
+import com.embabel.agent.api.tool.callback.ToolLoopInspector
+import com.embabel.agent.api.tool.callback.ToolLoopTransformer
 import com.embabel.agent.api.validation.guardrails.GuardRail
 import com.embabel.agent.core.ToolGroup
 import com.embabel.agent.core.ToolGroupRequirement
@@ -31,10 +33,9 @@ import com.embabel.agent.core.internal.LlmOperations
 import com.embabel.agent.core.support.LlmInteraction
 import com.embabel.agent.core.support.safelyGetTools
 import com.embabel.agent.spi.loop.ToolInjectionStrategy
+import com.embabel.agent.spi.loop.ToolNotFoundPolicy
 import com.embabel.chat.AssistantMessage
 import com.embabel.chat.Message
-import com.embabel.agent.api.tool.callback.ToolLoopInspector
-import com.embabel.agent.api.tool.callback.ToolLoopTransformer
 import com.embabel.chat.UserMessage
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.prompt.PromptContributor
@@ -42,10 +43,10 @@ import com.embabel.common.core.MobyNameGenerator
 import com.embabel.common.core.streaming.StreamingEvent
 import com.embabel.common.core.thinking.ThinkingResponse
 import com.embabel.common.core.types.ZeroToOne
-import org.slf4j.LoggerFactory
-import reactor.core.publisher.Flux
 import java.lang.reflect.Field
 import java.util.function.Predicate
+import org.slf4j.LoggerFactory
+import reactor.core.publisher.Flux
 
 enum class Method {
     CREATE_OBJECT,
@@ -217,6 +218,8 @@ data class FakePromptRunner(
             this@FakePromptRunner.copy(
                 toolCallContext = this@FakePromptRunner.toolCallContext.merge(context)
             ).DelegateAdapter()
+
+        override fun withToolNotFoundPolicy(policy: ToolNotFoundPolicy): PromptExecutionDelegate = this
 
         override val domainToolSources: List<DomainToolSource<*>>
             get() = emptyList()
@@ -453,6 +456,8 @@ data class FakePromptRunner(
 
     override fun withToolCallContext(context: ToolCallContext): PromptRunner =
         copy(toolCallContext = this.toolCallContext.merge(context))
+
+    override fun withToolNotFoundPolicy(policy: ToolNotFoundPolicy): PromptRunner = this
 
     override fun <T : Any> withToolChainingFrom(
         type: Class<T>,

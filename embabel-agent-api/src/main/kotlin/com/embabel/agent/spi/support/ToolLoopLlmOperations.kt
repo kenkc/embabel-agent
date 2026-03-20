@@ -29,6 +29,7 @@ import com.embabel.agent.core.support.LlmInteraction
 import com.embabel.agent.spi.AutoLlmSelectionCriteriaResolver
 import com.embabel.agent.spi.LlmService
 import com.embabel.agent.spi.ToolDecorator
+import com.embabel.agent.spi.loop.AutoCorrectionPolicy
 import com.embabel.agent.spi.loop.ChainedToolInjectionStrategy
 import com.embabel.agent.spi.loop.LlmMessageSender
 import com.embabel.agent.spi.loop.ToolInjectionStrategy
@@ -108,7 +109,7 @@ open class ToolLoopLlmOperations(
     internal open val objectMapper: ObjectMapper = jacksonObjectMapper().registerModule(JavaTimeModule()),
     protected val observationRegistry: ObservationRegistry = ObservationRegistry.NOOP,
     asyncer: Asyncer = ExecutorAsyncer(java.util.concurrent.Executors.newCachedThreadPool()),
-    protected val toolLoopFactory: ToolLoopFactory = ToolLoopFactory.create(ToolLoopConfiguration(), asyncer),
+    protected val toolLoopFactory: ToolLoopFactory = ToolLoopFactory.create(ToolLoopConfiguration(), asyncer, AutoCorrectionPolicy()),
     protected val templateRenderer: TemplateRenderer = NoOpTemplateRenderer,
 ) : AbstractLlmOperations(
     toolDecorator = toolDecorator,
@@ -160,6 +161,7 @@ open class ToolLoopLlmOperations(
             inspectors = interaction.inspectors,
             transformers = interaction.transformers,
             toolCallContext = effectiveContext,
+            toolNotFoundPolicy = interaction.toolNotFoundPolicy,
         )
 
         val initialMessages = buildInitialMessages(promptContributions, messages, schemaFormat)
@@ -247,6 +249,7 @@ open class ToolLoopLlmOperations(
             inspectors = interaction.inspectors,
             transformers = interaction.transformers,
             toolCallContext = effectiveContext,
+            toolNotFoundPolicy = interaction.toolNotFoundPolicy,
         )
 
         // Build MaybeReturn prompt contribution
@@ -376,6 +379,7 @@ open class ToolLoopLlmOperations(
             inspectors = interaction.inspectors,
             transformers = interaction.transformers,
             toolCallContext = effectiveContext,
+            toolNotFoundPolicy = interaction.toolNotFoundPolicy,
         )
 
         val initialMessages = buildInitialMessages(promptContributions, messages, schemaFormat)

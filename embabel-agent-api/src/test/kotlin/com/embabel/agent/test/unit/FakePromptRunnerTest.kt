@@ -18,14 +18,16 @@ package com.embabel.agent.test.unit
 import com.embabel.agent.api.common.CreationExample
 import com.embabel.agent.api.common.InteractionId
 import com.embabel.agent.api.tool.ToolCallContext
+import com.embabel.agent.spi.LlmService
 import com.embabel.common.ai.model.LlmOptions
-import org.junit.jupiter.api.Nested
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
+import io.mockk.mockk
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 // Test data classes - defined at top level to avoid Kotlin inner class restrictions
 data class TestUserIntent(val type: String, val description: String)
@@ -105,6 +107,21 @@ class FakePromptRunnerTest {
             assertEquals("classified result", result)
             assertEquals(1, context.llmInvocations.size)
             assertEquals(InteractionId("classify-intent"), context.llmInvocations[0].interaction.id)
+        }
+    }
+
+    @Nested
+    inner class WithLlmServiceTests {
+
+        @Test
+        fun `withLlmService returns same instance`() {
+            val context = FakeOperationContext.create()
+            val llmService = mockk<LlmService<*>>()
+            val original = context.ai().withDefaultLlm()
+
+            val result = original.withLlmService(llmService)
+
+            assertTrue(result is FakePromptRunner)
         }
     }
 

@@ -23,10 +23,10 @@ import com.embabel.agent.spi.loop.support.ParallelToolLoop
 import com.embabel.agent.spi.support.ExecutorAsyncer
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.mockk
+import java.util.concurrent.Executors
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.util.concurrent.Executors
 
 /**
  * Unit tests for [ToolLoopFactory].
@@ -37,11 +37,12 @@ class ToolLoopFactoryTest {
     private val objectMapper = ObjectMapper()
     private val injectionStrategy = ToolInjectionStrategy.NONE
     private val asyncer = ExecutorAsyncer(Executors.newFixedThreadPool(4))
+    private val defaultPolicy = AutoCorrectionPolicy()
 
     @Test
     fun `creates DefaultToolLoop for default type`() {
         val config = ToolLoopConfiguration()
-        val factory = ToolLoopFactory.create(config, asyncer)
+        val factory = ToolLoopFactory.create(config, asyncer, defaultPolicy)
 
         val toolLoop = factory.create(
             llmMessageSender = mockMessageSender,
@@ -61,7 +62,7 @@ class ToolLoopFactoryTest {
     @Test
     fun `creates ParallelToolLoop for parallel type`() {
         val config = ToolLoopConfiguration(type = ToolLoopType.PARALLEL)
-        val factory = ToolLoopFactory.create(config, asyncer)
+        val factory = ToolLoopFactory.create(config, asyncer, defaultPolicy)
 
         val toolLoop = factory.create(
             llmMessageSender = mockMessageSender,
@@ -84,7 +85,7 @@ class ToolLoopFactoryTest {
             type = ToolLoopType.DEFAULT,
             maxIterations = 10,
         )
-        val factory = ToolLoopFactory.create(config, asyncer)
+        val factory = ToolLoopFactory.create(config, asyncer, defaultPolicy)
 
         val toolLoop = factory.create(
             llmMessageSender = mockMessageSender,

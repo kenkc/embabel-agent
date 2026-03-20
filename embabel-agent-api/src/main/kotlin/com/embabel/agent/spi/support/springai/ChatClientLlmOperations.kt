@@ -26,6 +26,7 @@ import com.embabel.agent.core.support.toEmbabelUsage
 import com.embabel.agent.spi.AutoLlmSelectionCriteriaResolver
 import com.embabel.agent.spi.LlmService
 import com.embabel.agent.spi.ToolDecorator
+import com.embabel.agent.spi.loop.AutoCorrectionPolicy
 import com.embabel.agent.spi.loop.LlmMessageSender
 import com.embabel.agent.spi.loop.ToolLoopFactory
 import com.embabel.agent.spi.support.LlmDataBindingProperties
@@ -54,6 +55,11 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.micrometer.observation.ObservationRegistry
 import jakarta.annotation.PostConstruct
 import jakarta.validation.Validator
+import java.lang.reflect.ParameterizedType
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import javax.annotation.concurrent.ThreadSafe
 import org.springframework.ai.chat.client.ChatClient
 import org.springframework.ai.chat.client.ChatClientCustomizer
@@ -69,11 +75,6 @@ import org.springframework.context.ApplicationContext
 import org.springframework.core.ParameterizedTypeReference
 import org.springframework.retry.support.RetrySynchronizationManager
 import org.springframework.stereotype.Service
-import java.lang.reflect.ParameterizedType
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.ExecutionException
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 
 // Log message constants to avoid duplication
 private const val LLM_TIMEOUT_MESSAGE = "LLM {}: attempt {} timed out after {}ms"
@@ -109,7 +110,7 @@ internal class ChatClientLlmOperations(
     observationRegistry: ObservationRegistry = ObservationRegistry.NOOP,
     private val customizers: List<ChatClientCustomizer> = emptyList(),
     asyncer: Asyncer,
-    toolLoopFactory: ToolLoopFactory = ToolLoopFactory.create(ToolLoopConfiguration(), asyncer),
+    toolLoopFactory: ToolLoopFactory = ToolLoopFactory.create(ToolLoopConfiguration(), asyncer, AutoCorrectionPolicy()),
 ) : ToolLoopLlmOperations(
     toolDecorator = toolDecorator,
     modelProvider = modelProvider,
