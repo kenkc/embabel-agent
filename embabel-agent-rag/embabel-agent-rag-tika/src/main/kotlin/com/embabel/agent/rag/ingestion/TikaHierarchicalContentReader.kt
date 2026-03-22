@@ -160,9 +160,19 @@ class TikaHierarchicalContentReader @JvmOverloads constructor(
             }
 
             // For markdown files, read directly and skip Tika parsing to avoid archive detection issues
-            val isMarkdownByExtension = metadata.get(TikaCoreProperties.RESOURCE_NAME_KEY)?.endsWith(".md") == true
+            val resourceName = metadata.get(TikaCoreProperties.RESOURCE_NAME_KEY) ?: ""
+            val isMarkdownByExtension = resourceName.endsWith(".md")
             val isMarkdownByType = detectedType.contains("markdown")
             if (isMarkdownByExtension || isMarkdownByType) {
+                val charset = getCharsetFromMetadata(metadata)
+                val content = bufferedStream.readBytes().toString(charset)
+                return markdownParser.parse(content, metadata, uri)
+            }
+
+            // For plain text files, read directly to avoid Tika's archive detection misclassification
+            val isTextByExtension = resourceName.endsWith(".txt") || resourceName.endsWith(".text")
+            val isTextByType = detectedType == "text/plain"
+            if (isTextByExtension || isTextByType) {
                 val charset = getCharsetFromMetadata(metadata)
                 val content = bufferedStream.readBytes().toString(charset)
                 return markdownParser.parse(content, metadata, uri)
