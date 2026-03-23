@@ -6,10 +6,10 @@
         <artifactId>embabel-agent-parent</artifactId>
         <version>0.3.5-SNAPSHOT</version>
     </parent>
-    <artifactId>embabel-agent-mcpserver</artifactId>
-    <packaging>jar</packaging>
-    <name>Embabel Agent MCP Server</name>
-    <description>Discover and Export available Agent(s) as an MCP Servers</description>
+    <artifactId>embabel-agent-mcp</artifactId>
+    <packaging>pom</packaging>
+    <name>Embabel Agent MCP Parent</name>
+    <description>Parent Module for Embabel MCP Server Framework</description>
     <url>https://github.com/embabel/embabel-agent</url>
 
     <scm>
@@ -19,13 +19,18 @@
         <tag>HEAD</tag>
     </scm>
 
-    <dependencies>        
+    <modules>
+        <module>embabel-agent-mcpserver</module>
+        <module>embabel-agent-mcp-security</module>
+    </modules>
+
+    <dependencies>
         <!-- Main Dependencies -->
         <dependency>
             <groupId>com.embabel.agent</groupId>
             <artifactId>embabel-agent-api</artifactId>
         </dependency>
-        
+
         <dependency>
             <groupId>com.embabel.common</groupId>
             <artifactId>embabel-common-core</artifactId>
@@ -35,6 +40,11 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
         </dependency>
+
+        <!--<dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-config</artifactId>
+        </dependency>-->
 
         <!-- Test Dependencies -->
         <dependency>
@@ -48,6 +58,13 @@
             <artifactId>embabel-agent-test-internal</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -61,7 +78,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
             </plugin>
-
         </plugins>
     </build>
 

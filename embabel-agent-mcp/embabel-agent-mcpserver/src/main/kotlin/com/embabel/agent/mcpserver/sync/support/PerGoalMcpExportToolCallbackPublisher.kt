@@ -94,12 +94,20 @@ class McpAwareGoalTool<I : Any>(
     override val metadata: Tool.Metadata = delegate.metadata
 
     override fun call(input: String): Tool.Result {
-        // Add MCP resource updating listener to the delegate
         val delegateWithListener = delegate.withListener(
             McpResourceUpdatingListener(mcpSyncServer)
         )
         logger.debug("Calling MCP-aware goal tool {} with input: {}", definition.name, input)
-        return delegateWithListener.call(input)
+        return try {
+            delegateWithListener.call(input)
+        } catch (e: Exception) {
+            if (e.javaClass.name == "org.springframework.security.access.AccessDeniedException") {
+                logger.warn("Access denied for tool {}: {}", definition.name, e.message)
+                Tool.Result.error("Access denied: ${e.message}")
+            } else {
+                throw e
+            }
+        }
     }
 }
 
