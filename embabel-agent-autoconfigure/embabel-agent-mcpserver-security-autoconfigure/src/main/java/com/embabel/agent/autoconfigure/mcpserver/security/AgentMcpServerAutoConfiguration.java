@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.embabel.agent.autoconfigure.mcpserver.secured;
+package com.embabel.agent.autoconfigure.mcpserver.security;
 
 import com.embabel.agent.config.mcpserver.security.SecureAgentToolConfiguration;
-import com.embabel.agent.config.mcpserver.security.SecuredAgentSecurityConfiguration;
+import com.embabel.agent.config.mcpserver.security.SecureAgentSecurityConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Import;
@@ -32,6 +32,6 @@ import org.springframework.context.annotation.Import;
  */
 @AutoConfiguration
 @ComponentScan(basePackages = "com.embabel.agent.mcpserver")
-@Import({SecureAgentToolConfiguration.class, SecuredAgentSecurityConfiguration.class})
+@Import({SecureAgentToolConfiguration.class, SecureAgentSecurityConfiguration.class})
 public class AgentMcpServerAutoConfiguration {
 }
