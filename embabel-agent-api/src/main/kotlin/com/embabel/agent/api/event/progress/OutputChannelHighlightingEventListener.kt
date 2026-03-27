@@ -21,6 +21,8 @@ import com.embabel.agent.api.event.AgentProcessEvent
 import com.embabel.agent.api.event.AgenticEventListener
 import com.embabel.agent.api.event.LlmRequestEvent
 import com.embabel.agent.api.event.ToolCallRequestEvent
+import com.embabel.agent.api.tool.CommunicateTool
+import com.embabel.agent.api.tool.ProgressTool
 
 /**
  * Convenient event listener that highlights important events in the output channel.
@@ -30,10 +32,20 @@ class OutputChannelHighlightingEventListener(
     private val verbose: Boolean = true,
 ) : AgenticEventListener {
 
+    companion object {
+        /** Tools whose raw input should not be shown to the user as progress. */
+        private val SILENT_TOOLS = setOf(CommunicateTool.NAME, ProgressTool.NAME)
+    }
+
     override fun onProcessEvent(event: AgentProcessEvent) {
         when (event) {
             is ToolCallRequestEvent -> {
-                var message = "🔧 ${event.tool}"
+                // Don't show raw input for user-facing communication tools —
+                // their messages appear as chat bubbles or progress banners
+                val toolName = event.tool
+                if (toolName in SILENT_TOOLS) return
+
+                var message = "🔧 $toolName"
                 if (verbose) {
                     message += " with input `${event.toolInput}`"
                 }
