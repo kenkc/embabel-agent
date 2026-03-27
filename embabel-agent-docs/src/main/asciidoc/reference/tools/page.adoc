@@ -4279,6 +4279,141 @@ val awarenessAgent = SimpleAgenticTool(
 ----
 ====
 
+[[reference.tools__process-communication]]
+==== Process Communication Tools
+
+Embabel provides two built-in tools that allow the LLM to communicate with the user during agent execution.
+Both route messages through the current `AgentProcess` output channel, but differ in their intent and presentation.
+
+|===
+|Tool |Purpose |Presentation
+
+|`progress`
+|Report transient status updates during long-running work
+|Shown as a progress banner (ephemeral)
+
+|`communicate`
+|Send a permanent message to the user
+|Shown as an assistant chat bubble (persistent)
+|===
+
+===== ProgressTool
+
+`ProgressTool` allows the LLM to report what it is currently doing during long-running actions.
+Progress messages are transient—they indicate activity but are not part of the final conversation output.
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+import com.embabel.agent.api.tool.ProgressTool;
+import com.embabel.agent.api.tool.Tool;
+
+Tool progressTool = ProgressTool.create();
+
+// Add to a SimpleAgenticTool
+var assistant = new SimpleAgenticTool("assistant", "...")
+    .withTools(progressTool);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+import com.embabel.agent.api.tool.ProgressTool
+import com.embabel.agent.api.tool.Tool
+
+val progressTool: Tool = ProgressTool.create()
+
+// Add to a SimpleAgenticTool
+val assistant = SimpleAgenticTool("assistant", "...")
+    .withTools(progressTool)
+----
+====
+
+When the LLM calls the `progress` tool, it sends a `ProgressOutputChannelEvent` to the output channel with a short status message.
+If no `AgentProcess` is active on the current thread, the tool logs a warning and returns gracefully—agent execution is not interrupted.
+
+===== CommunicateTool
+
+`CommunicateTool` allows the LLM to send a permanent message to the user.
+Unlike progress updates, communicate messages appear as assistant chat bubbles and remain part of the conversation.
+Use this for reporting results, sharing links (e.g., PR URLs), or informing the user of important outcomes.
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+import com.embabel.agent.api.tool.CommunicateTool;
+import com.embabel.agent.api.tool.Tool;
+
+Tool communicateTool = CommunicateTool.create();
+
+// Add to a SimpleAgenticTool
+var assistant = new SimpleAgenticTool("assistant", "...")
+    .withTools(communicateTool);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+import com.embabel.agent.api.tool.CommunicateTool
+import com.embabel.agent.api.tool.Tool
+
+val communicateTool: Tool = CommunicateTool.create()
+
+// Add to a SimpleAgenticTool
+val assistant = SimpleAgenticTool("assistant", "...")
+    .withTools(communicateTool)
+----
+====
+
+When the LLM calls the `communicate` tool, it sends a `MessageOutputChannelEvent` containing an `AssistantMessage` to the output channel.
+Like `ProgressTool`, it handles the absence of an active `AgentProcess` gracefully.
+
+===== Combining Communication Tools
+
+For agents that need both transient progress reporting and persistent messaging, provide both tools:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+var assistant = new SimpleAgenticTool(
+        "assistant",
+        "An assistant that reports progress and communicates results")
+    .withTools(
+        ProgressTool.create(),
+        CommunicateTool.create()
+    );
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val assistant = SimpleAgenticTool(
+    name = "assistant",
+    systemPrompt = "An assistant that reports progress and communicates results"
+).withTools(
+    ProgressTool.create(),
+    CommunicateTool.create()
+)
+----
+====
+
+NOTE: Both tools require an active `AgentProcess` context to deliver messages to the user.
+If called outside of an agent execution, they return a soft acknowledgment and log a warning—they do not throw exceptions or interrupt agent execution.
+
+TIP: The `OutputChannelHighlightingEventListener` automatically suppresses raw tool-call progress banners for `progress` and `communicate` tools, since these tools produce their own user-visible output.
+
 [[reference.tools__mcp-tool-factory]]
 ==== McpToolFactory: MCP Tool Integration
 
