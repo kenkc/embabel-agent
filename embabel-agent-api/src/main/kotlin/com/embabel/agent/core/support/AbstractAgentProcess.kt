@@ -15,6 +15,11 @@
  */
 package com.embabel.agent.core.support
 
+import com.embabel.agent.api.common.TerminationScope
+import com.embabel.agent.api.common.TerminationSignal
+import com.embabel.agent.api.termination.TerminationSignalPolicy
+import com.embabel.agent.api.tool.TerminateActionException
+import com.embabel.agent.api.tool.TerminateAgentException
 import com.embabel.agent.api.common.PlatformServices
 import com.embabel.agent.api.common.StuckHandlingResultCode
 import com.embabel.agent.api.common.ToolsStats
@@ -62,6 +67,27 @@ abstract class AbstractAgentProcess(
 
     override val failureInfo: Any?
         get() = _failureInfo
+
+    private var _terminationRequest: TerminationSignal? = null
+
+    internal val terminationRequest: TerminationSignal?
+        get() = _terminationRequest
+
+    private fun setTerminationRequest(signal: TerminationSignal) {
+        _terminationRequest = signal
+    }
+
+    internal fun resetTerminationRequest() {
+        _terminationRequest = null
+    }
+
+    override fun terminateAgent(reason: String) {
+        setTerminationRequest(TerminationSignal(TerminationScope.AGENT, reason))
+    }
+
+    override fun terminateAction(reason: String) {
+        setTerminationRequest(TerminationSignal(TerminationScope.ACTION, reason))
+    }
 
     override val lastWorldState: WorldState?
         get() = _lastWorldState
@@ -229,8 +255,33 @@ abstract class AbstractAgentProcess(
 
     /**
      * Should this process be terminated early?
+     * Also clears any pending termination requests after processing.
      */
     protected fun identifyEarlyTermination(): EarlyTermination? {
+        // Check for API-driven termination signal first
+        val signalTermination = TerminationSignalPolicy.shouldTerminate(this)
+        if (signalTermination != null) {
+            resetTerminationRequest()
+            logger.debug(
+                "Process {} terminated by termination signal: {}",
+                this.id,
+                signalTermination.reason,
+            )
+            platformServices.eventListener.onProcessEvent(signalTermination)
+            _failureInfo = signalTermination
+            setStatus(AgentProcessStatusCode.TERMINATED)
+            return signalTermination
+        }
+
+        // Clear any stale ACTION signal that wasn't consumed by tool loop
+        // (e.g., set by a simple action without tool loop)
+        val staleSignal = terminationRequest
+        if (staleSignal != null && staleSignal.scope == TerminationScope.ACTION) {
+            logger.debug("Clearing stale ACTION termination signal: {}", staleSignal.reason)
+            resetTerminationRequest()
+        }
+
+        // Check configured early termination policies
         val earlyTermination = processOptions.processControl.earlyTerminationPolicy.shouldTerminate(this)
         if (earlyTermination != null) {
             logger.debug(
@@ -374,12 +425,20 @@ abstract class AbstractAgentProcess(
         val blackboardObjectsBefore = blackboard.objects.toList()
 
         val timestamp = Instant.now()
-        val actionStatus = withCurrent {
-            action.qos.retryTemplate("Action-${action.name}").execute<ActionStatus, Throwable> {
-                action.execute(
-                    processContext = processContext,
-                )
+        val actionStatus = try {
+            withCurrent {
+                action.qos.retryTemplate("Action-${action.name}").execute<ActionStatus, Throwable> {
+                    action.execute(
+                        processContext = processContext,
+                    )
+                }
             }
+        } catch (e: TerminateActionException) {
+            logger.info("Action {} terminated early: {}", action.name, e.reason)
+            ActionStatus(Duration.between(timestamp, Instant.now()), ActionStatusCode.TERMINATED)
+        } catch (e: TerminateAgentException) {
+            logger.info("Action {} requested agent termination: {}", action.name, e.reason)
+            ActionStatus(Duration.between(timestamp, Instant.now()), ActionStatusCode.AGENT_TERMINATED)
         }
         val runningTime = Duration.between(timestamp, Instant.now())
         _history += ActionInvocation(
@@ -435,6 +494,16 @@ abstract class AbstractAgentProcess(
             ActionStatusCode.PAUSED -> {
                 logger.debug("⏳ Process {} action {} paused", id, actionStatus.status)
                 AgentProcessStatusCode.PAUSED
+            }
+
+            ActionStatusCode.TERMINATED -> {
+                logger.debug("Process {} action terminated early, continuing", id)
+                AgentProcessStatusCode.RUNNING
+            }
+
+            ActionStatusCode.AGENT_TERMINATED -> {
+                logger.debug("Process {} action requested agent termination", id)
+                AgentProcessStatusCode.TERMINATED
             }
         }
     }
