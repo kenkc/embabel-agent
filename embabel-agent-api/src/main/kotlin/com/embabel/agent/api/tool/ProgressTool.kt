@@ -25,7 +25,6 @@ import org.slf4j.LoggerFactory
  *
  * If no process is active on the current thread, logs a warning and returns
  * a soft error — the action can continue without interruption.
- * TODO this will eventually go into embabel-agent-api
  */
 object ProgressTool {
 

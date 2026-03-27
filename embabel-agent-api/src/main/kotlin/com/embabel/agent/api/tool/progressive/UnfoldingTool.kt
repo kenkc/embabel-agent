@@ -803,6 +803,12 @@ internal class SimpleUnfoldingTool(
 ) : MatryoshkaTool {
 
     override fun call(input: String): Tool.Result {
+        // Check if the LLM tried to shortcut the two-step unfolding pattern by passing
+        // inner tool arguments directly (e.g. tasks({"create_task": {...}}) instead of
+        // tasks({}) then create_task({...})). If so, dispatch to the inner tool immediately.
+        val shortcutResult = tryShortcutDispatch(input, innerTools)
+        if (shortcutResult != null) return shortcutResult
+
         val toolNames = innerTools.map { it.definition.name }
         return Tool.Result.text(
             "Enabled ${innerTools.size} tools: ${toolNames.joinToString(", ")}"
@@ -826,12 +832,54 @@ internal class SelectableUnfoldingTool(
     override fun selectTools(input: String): List<Tool> = selector(input)
 
     override fun call(input: String): Tool.Result {
+        val shortcutResult = tryShortcutDispatch(input, innerTools)
+        if (shortcutResult != null) return shortcutResult
+
         val selected = selectTools(input)
         val toolNames = selected.map { it.definition.name }
         return Tool.Result.text(
             "Enabled ${selected.size} tools: ${toolNames.joinToString(", ")}"
         )
     }
+}
+
+private val shortcutLogger: Logger = LoggerFactory.getLogger("com.embabel.agent.api.tool.progressive.UnfoldingShortcut")
+private val shortcutMapper = jacksonObjectMapper()
+
+/**
+ * Detects when an LLM tries to shortcut the two-step unfolding pattern by passing
+ * inner tool arguments directly in the outer tool call.
+ *
+ * For example, if the LLM calls `tasks({"create_task": {"name": "foo", ...}})`,
+ * this detects that `create_task` is an inner tool name and dispatches to it
+ * with the nested arguments, rather than ignoring the payload.
+ *
+ * Returns null if no shortcut was detected (normal unfolding path).
+ */
+internal fun tryShortcutDispatch(input: String, innerTools: List<Tool>): Tool.Result? {
+    if (input.isBlank() || input == "{}") return null
+    val parsed = try { shortcutMapper.readTree(input) } catch (_: Exception) { return null }
+    if (!parsed.isObject) return null
+
+    val innerToolsByName = innerTools.associateBy { it.definition.name }
+    for (fieldName in parsed.fieldNames()) {
+        val innerTool = innerToolsByName[fieldName]
+        if (innerTool != null) {
+            val nestedArgs = parsed.get(fieldName)
+            val argsString = if (nestedArgs.isObject || nestedArgs.isArray) {
+                nestedArgs.toString()
+            } else {
+                // Scalar value — wrap as the tool might expect
+                nestedArgs.toString()
+            }
+            shortcutLogger.info(
+                "Shortcut dispatch: LLM passed '{}' arguments to outer tool — forwarding to inner tool",
+                fieldName,
+            )
+            return innerTool.call(argsString)
+        }
+    }
+    return null
 }
 
 /**
