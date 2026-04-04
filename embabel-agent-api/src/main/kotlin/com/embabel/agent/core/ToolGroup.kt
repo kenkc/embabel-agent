@@ -39,14 +39,24 @@ interface ToolGroupDescription {
      */
     val role: String
 
+    /**
+     * Optional usage notes shown to the LLM when this tool group is unfolded.
+     * Used to guide the LLM on how to use the inner tools effectively.
+     * Propagated to [com.embabel.agent.api.tool.progressive.UnfoldingTool.childToolUsageNotes].
+     */
+    val childToolUsageNotes: String?
+        get() = null
+
     companion object {
 
         operator fun invoke(
             description: String,
             role: String,
+            childToolUsageNotes: String? = null,
         ): ToolGroupDescription = ToolGroupDescriptionImpl(
             description = description,
             role = role,
+            childToolUsageNotes = childToolUsageNotes,
         )
 
         @JvmStatic
@@ -64,6 +74,7 @@ interface ToolGroupDescription {
 private data class ToolGroupDescriptionImpl(
     override val description: String,
     override val role: String,
+    override val childToolUsageNotes: String? = null,
 ) : ToolGroupDescription
 
 enum class ToolGroupPermission {
