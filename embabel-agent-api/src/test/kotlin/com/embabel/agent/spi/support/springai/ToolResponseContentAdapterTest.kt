@@ -62,11 +62,11 @@ class ToolResponseContentAdapterTest {
 
         @Test
         fun `wraps plain text in JSON object`() {
-            val result = adapter.adapt("Enabled 4 tools: search, filter, sort, count")
+            val result = adapter.adapt("Tools now available: search, filter, sort, count")
 
             assertThat(result).startsWith("{")
             assertThat(result).contains("\"result\"")
-            assertThat(result).contains("Enabled 4 tools")
+            assertThat(result).contains("Tools now available")
         }
 
         @Test

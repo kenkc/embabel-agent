@@ -19,6 +19,7 @@ import com.embabel.agent.api.annotation.LlmTool
 import com.embabel.agent.api.annotation.MatryoshkaTools
 import com.embabel.agent.api.annotation.UnfoldingTools
 import com.embabel.agent.api.tool.MatryoshkaTool
+import com.embabel.agent.api.tool.progressive.UnfoldingTool
 import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.spi.loop.support.DefaultToolLoop
 import com.embabel.chat.UserMessage
@@ -79,7 +80,7 @@ class MatryoshkaToolTest {
 
             assertTrue(result is Tool.Result.Text)
             val text = (result as Tool.Result.Text).content
-            assertTrue(text.contains("2 tools"))
+            assertTrue(text.contains("Tools now available"))
             assertTrue(text.contains("tool_a"))
             assertTrue(text.contains("tool_b"))
         }
@@ -454,6 +455,75 @@ class MatryoshkaToolTest {
 
             // No tools when no inner tools
             assertTrue(result.toolsToAdd.isEmpty())
+        }
+
+        @Test
+        fun `exclusive UnfoldingTool removes all other tools`() {
+            val innerTool = MockTool("inner", "Inner tool") { Tool.Result.text("inner") }
+            val siblingTool = MockTool("sibling", "Sibling tool") { Tool.Result.text("sibling") }
+            val exclusiveTool = UnfoldingTool.of(
+                name = "exclusive_tool",
+                description = "Exclusive tool",
+                innerTools = listOf(innerTool),
+                exclusive = true,
+            )
+
+            val context = ToolInjectionContext(
+                conversationHistory = emptyList(),
+                currentTools = listOf(exclusiveTool, siblingTool),
+                lastToolCall = ToolCallResult(
+                    toolName = "exclusive_tool",
+                    toolInput = "{}",
+                    result = "Tools now available: inner",
+                    resultObject = null,
+                ),
+                iterationCount = 1,
+            )
+
+            val strategy = UnfoldingToolInjectionStrategy()
+            val result = strategy.evaluate(context)
+
+            assertTrue(result.hasChanges())
+            assertEquals(1, result.toolsToAdd.size)
+            assertTrue(result.toolsToAdd.any { it.definition.name == "inner" })
+            // All current tools should be removed (both the exclusive tool and the sibling)
+            assertEquals(2, result.toolsToRemove.size)
+            assertTrue(result.toolsToRemove.any { it.definition.name == "exclusive_tool" })
+            assertTrue(result.toolsToRemove.any { it.definition.name == "sibling" })
+        }
+
+        @Test
+        fun `non-exclusive UnfoldingTool preserves sibling tools`() {
+            val innerTool = MockTool("inner", "Inner tool") { Tool.Result.text("inner") }
+            val siblingTool = MockTool("sibling", "Sibling tool") { Tool.Result.text("sibling") }
+            val nonExclusiveTool = UnfoldingTool.of(
+                name = "non_exclusive_tool",
+                description = "Non-exclusive tool",
+                innerTools = listOf(innerTool),
+                exclusive = false,
+            )
+
+            val context = ToolInjectionContext(
+                conversationHistory = emptyList(),
+                currentTools = listOf(nonExclusiveTool, siblingTool),
+                lastToolCall = ToolCallResult(
+                    toolName = "non_exclusive_tool",
+                    toolInput = "{}",
+                    result = "Tools now available: inner",
+                    resultObject = null,
+                ),
+                iterationCount = 1,
+            )
+
+            val strategy = UnfoldingToolInjectionStrategy()
+            val result = strategy.evaluate(context)
+
+            assertTrue(result.hasChanges())
+            assertEquals(1, result.toolsToAdd.size)
+            assertTrue(result.toolsToAdd.any { it.definition.name == "inner" })
+            // Only the parent tool should be removed, not the sibling
+            assertEquals(1, result.toolsToRemove.size)
+            assertEquals("non_exclusive_tool", result.toolsToRemove[0].definition.name)
         }
 
     }

@@ -836,10 +836,7 @@ internal class SimpleUnfoldingTool(
         val shortcutResult = tryShortcutDispatch(input, innerTools)
         if (shortcutResult != null) return shortcutResult
 
-        val toolNames = innerTools.map { it.definition.name }
-        return Tool.Result.text(
-            "Enabled ${innerTools.size} tools: ${toolNames.joinToString(", ")}"
-        )
+        return Tool.Result.text(buildUnfoldedMessage(innerTools))
     }
 }
 
@@ -864,11 +861,21 @@ internal class SelectableUnfoldingTool(
         if (shortcutResult != null) return shortcutResult
 
         val selected = selectTools(input)
-        val toolNames = selected.map { it.definition.name }
-        return Tool.Result.text(
-            "Enabled ${selected.size} tools: ${toolNames.joinToString(", ")}"
-        )
+        return Tool.Result.text(buildUnfoldedMessage(selected))
     }
+}
+
+/**
+ * Build the message returned when an UnfoldingTool is invoked.
+ * This message appears as a tool result in the conversation history and
+ * strongly directs the LLM to call one of the revealed inner tools
+ * rather than generating a text response.
+ */
+private fun buildUnfoldedMessage(tools: List<Tool>): String {
+    val toolNames = tools.map { it.definition.name }
+    return "Tools now available: ${toolNames.joinToString(", ")}. " +
+            "You MUST call one of these tools to complete the user's request. " +
+            "Do NOT respond with text — call a tool."
 }
 
 private val shortcutLogger: Logger = LoggerFactory.getLogger("com.embabel.agent.api.tool.progressive.UnfoldingShortcut")

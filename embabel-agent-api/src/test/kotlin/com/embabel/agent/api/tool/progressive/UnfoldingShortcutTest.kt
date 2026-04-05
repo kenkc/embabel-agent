@@ -148,7 +148,7 @@ class UnfoldingShortcutTest {
             val tool = UnfoldingTool.of("tasks", "Task management", listOf(inner))
 
             val result = tool.call("{}")
-            assertTrue((result as Tool.Result.Text).content.contains("Enabled 1 tools"))
+            assertTrue((result as Tool.Result.Text).content.contains("Tools now available"))
             assertTrue(result.content.contains("create_task"))
         }
 
@@ -176,7 +176,7 @@ class UnfoldingShortcutTest {
             val tool = UnfoldingTool.of("tasks", "Task management", listOf(inner))
 
             val result = tool.call("""{"random_field": "value"}""")
-            assertTrue((result as Tool.Result.Text).content.contains("Enabled 1 tools"))
+            assertTrue((result as Tool.Result.Text).content.contains("Tools now available"))
         }
 
         @Test

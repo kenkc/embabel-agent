@@ -3124,6 +3124,46 @@ After the LLM invokes `spotify_search`, it will see:
 The context tool's description includes the original purpose and available tools.
 When called, it returns full details about each child tool plus the usage notes - providing a single reference point without polluting individual tool descriptions.
 
+===== Exclusive Mode
+
+By default, when an UnfoldingTool is expanded, its inner tools are added alongside any sibling tools already in the tool set.
+In some cases the LLM may ignore the inner tools and instead pick a sibling tool, defeating the purpose of the unfolding.
+
+Setting `exclusive = true` removes **all** other tools when the UnfoldingTool is expanded, so the LLM sees only the inner tools until the interaction ends.
+Use this when the LLM consistently picks the wrong sibling tool instead of using the revealed inner tools.
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+var personalityTool = UnfoldingTool.of(
+    "change_personality",
+    "Change the assistant's personality. Invoke to see personality options.",
+    List.of(formalTool, casualTool, technicalTool),
+    true,   // removeOnInvoke
+    null,   // childToolUsageNotes
+    true    // exclusive — hide all other tools after expansion
+);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val personalityTool = UnfoldingTool.of(
+    name = "change_personality",
+    description = "Change the assistant's personality. Invoke to see personality options.",
+    innerTools = listOf(formalTool, casualTool, technicalTool),
+    exclusive = true, // hide all other tools after expansion
+)
+----
+====
+
+When `exclusive` is false (the default), the parent tool is replaced by its inner tools and all sibling tools remain available.
+When `exclusive` is true, every tool in the current tool set is removed and only the inner tools are injected.
+
 ===== Annotation-Based UnfoldingTool
 
 For a more declarative approach, use the `@UnfoldingTools` class annotation combined with `@LlmTool` method annotations:
