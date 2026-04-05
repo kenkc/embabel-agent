@@ -84,6 +84,16 @@ interface UnfoldingTool : ProgressiveTool {
     val childToolUsageNotes: String? get() = null
 
     /**
+     * When true, expanding this tool removes ALL other tools from the LLM's
+     * tool set — the LLM will only see the inner tools until the interaction
+     * ends. Use this for tools where the LLM consistently picks the wrong
+     * sibling tool instead of using the inner tools (e.g., personality changes).
+     *
+     * Defaults to false for backward compatibility.
+     */
+    val exclusive: Boolean get() = false
+
+    /**
      * Whether to remove this tool after invocation.
      *
      * @deprecated Always replaced by a guide tool after first invocation.
@@ -129,6 +139,7 @@ interface UnfoldingTool : ProgressiveTool {
         innerTools = innerTools + tools.toList(),
         removeOnInvoke = removeOnInvoke,
         childToolUsageNotes = childToolUsageNotes,
+        exclusive = exclusive,
     )
 
     /**
@@ -153,6 +164,7 @@ interface UnfoldingTool : ProgressiveTool {
             innerTools = innerTools + additionalTools,
             removeOnInvoke = removeOnInvoke,
             childToolUsageNotes = childToolUsageNotes,
+            exclusive = exclusive,
         )
     }
 
@@ -170,6 +182,7 @@ interface UnfoldingTool : ProgressiveTool {
          * @param innerTools The tools to expose when invoked
          * @param removeOnInvoke Whether to remove this tool after invocation (default true)
          * @param childToolUsageNotes Optional notes to guide LLM on using the child tools
+         * @param exclusive When true, removes ALL other tools on expansion (default false)
          */
         @Suppress("DEPRECATION")
         open fun of(
@@ -178,6 +191,7 @@ interface UnfoldingTool : ProgressiveTool {
             innerTools: List<Tool>,
             removeOnInvoke: Boolean = true,
             childToolUsageNotes: String? = null,
+            exclusive: Boolean = false,
         ): UnfoldingTool = SimpleUnfoldingTool(
             definition = Tool.Definition(
                 name = name,
@@ -187,6 +201,7 @@ interface UnfoldingTool : ProgressiveTool {
             innerTools = innerTools,
             removeOnInvoke = removeOnInvoke,
             childToolUsageNotes = childToolUsageNotes,
+            exclusive = exclusive,
         )
 
         /**
@@ -719,7 +734,18 @@ interface UnfoldingTool : ProgressiveTool {
             innerTools: List<Tool>,
             removeOnInvoke: Boolean,
             childToolUsageNotes: String?,
-        ): UnfoldingTool = super.of(name, description, innerTools, removeOnInvoke, childToolUsageNotes)
+            exclusive: Boolean,
+        ): UnfoldingTool = super.of(name, description, innerTools, removeOnInvoke, childToolUsageNotes, exclusive)
+
+        @JvmStatic
+        @Suppress("DEPRECATION")
+        fun of(
+            name: String,
+            description: String,
+            innerTools: List<Tool>,
+            removeOnInvoke: Boolean,
+            childToolUsageNotes: String?,
+        ): UnfoldingTool = super.of(name, description, innerTools, removeOnInvoke, childToolUsageNotes, false)
 
         @JvmStatic
         @Suppress("DEPRECATION")
@@ -763,7 +789,7 @@ interface UnfoldingTool : ProgressiveTool {
             name: String,
             description: String,
             innerTools: List<Tool>,
-        ): UnfoldingTool = super.of(name, description, innerTools, true, null)
+        ): UnfoldingTool = super.of(name, description, innerTools, true, null, false)
 
         @JvmStatic
         @Suppress("DEPRECATION")
@@ -800,6 +826,7 @@ internal class SimpleUnfoldingTool(
     override val innerTools: List<Tool>,
     override val removeOnInvoke: Boolean,
     override val childToolUsageNotes: String? = null,
+    override val exclusive: Boolean = false,
 ) : MatryoshkaTool {
 
     override fun call(input: String): Tool.Result {
@@ -826,6 +853,7 @@ internal class SelectableUnfoldingTool(
     override val innerTools: List<Tool>,
     override val removeOnInvoke: Boolean,
     override val childToolUsageNotes: String? = null,
+    override val exclusive: Boolean = false,
     private val selector: (String) -> List<Tool>,
 ) : MatryoshkaTool {
 

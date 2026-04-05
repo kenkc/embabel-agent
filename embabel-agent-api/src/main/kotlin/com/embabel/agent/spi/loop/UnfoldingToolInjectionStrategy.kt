@@ -94,6 +94,20 @@ class UnfoldingToolInjectionStrategy : ToolInjectionStrategy {
             selectedTools.map { it.definition.name }
         )
 
+        // Exclusive mode: remove ALL other tools so the LLM focuses on inner tools only.
+        // Normal mode: replace just the parent tool with its inner tools.
+        if (invokedTool.exclusive) {
+            logger.debug(
+                "Exclusive UnfoldingTool '{}': removing all {} other tools",
+                invokedTool.definition.name,
+                context.currentTools.size,
+            )
+            return ToolInjectionResult(
+                toolsToRemove = context.currentTools,
+                toolsToAdd = selectedTools,
+            )
+        }
+
         // Replace the parent with just the sub-tools. If the LLM calls the
         // parent name again, ToolNotFoundException will fire with a message
         // listing all available tools — the LLM can self-correct from that.
