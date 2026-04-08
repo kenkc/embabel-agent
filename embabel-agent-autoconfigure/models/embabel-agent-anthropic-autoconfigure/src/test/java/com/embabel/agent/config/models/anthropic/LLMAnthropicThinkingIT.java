@@ -48,13 +48,13 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Java integration test for Ollama thinking functionality using builder pattern.
+ * Java integration test for Anthropic thinking functionality using builder pattern.
  * Tests the Java equivalent of Kotlin's withThinking() extension function.
  */
 @SpringBootTest(
         properties = {
-                "embabel.models.cheapest=claude_-sonnet-4-5",
-                "embabel.models.best=claude_-sonnet-4-5",
+                "embabel.models.cheapest=claude-sonnet-4-5",
+                "embabel.models.best=claude-sonnet-4-5",
                 "embabel.models.default-llm=claude-sonnet-4-5",
                 "embabel.agent.platform.llm-operations.prompts.defaultTimeout=240s",
                 "embabel.agent.platform.llm-operations.data-binding.fixedBackoffMillis=6000",
@@ -171,17 +171,17 @@ class LLMAnthropicThinkingIT {
     /**
      * GuardRail For User Messages
      */
-    record UserInputThinkingtGuardRail() implements UserInputGuardRail {
+    record UserInputThinkingGuardRail() implements UserInputGuardRail {
 
 
         @Override
         public @NotNull String getName() {
-            return "UserInputThinkingtGuardRail";
+            return "UserInputThinkingGuardRail";
         }
 
         @Override
         public @NotNull String getDescription() {
-            return "UserInputThinkingtGuardRail";
+            return "UserInputThinkingGuardRail";
         }
 
         @Override
@@ -199,7 +199,7 @@ class LLMAnthropicThinkingIT {
 
         @Override
         public @NotNull String getName() {
-            return "UserInputSimpletGuardRail";
+            return "UserInputSimpleGuardRail";
         }
 
         @Override
@@ -219,17 +219,17 @@ class LLMAnthropicThinkingIT {
     /**
      * Simple Guard Rail, throws GuardRail Violation Exception
      */
-    record UserInputCriticalSeveritytGuardRail() implements UserInputGuardRail {
+    record UserInputCriticalSeverityGuardRail() implements UserInputGuardRail {
 
 
         @Override
         public @NotNull String getName() {
-            return "UserInputCriticalSeveritytGuardRail";
+            return "UserInputCriticalSeverityGuardRail";
         }
 
         @Override
         public @NotNull String getDescription() {
-            return "UserInputCriticalSeveritytGuardRail";
+            return "UserInputCriticalSeverityGuardRail";
         }
 
         @Override
@@ -309,7 +309,7 @@ class LLMAnthropicThinkingIT {
         PromptRunner runner = ai.withLlm("claude-sonnet-4-5")
                 .withToolObject(Tooling.class)
                 .withGenerateExamples(true)
-                .withGuardRails(new UserInputThinkingtGuardRail(), new ThinkingBlocksGuardRail());
+                .withGuardRails(new UserInputThinkingGuardRail(), new ThinkingBlocksGuardRail());
 
         String prompt = """
                 What is the hottest month in Florida and  provide its temperature.
@@ -386,7 +386,7 @@ class LLMAnthropicThinkingIT {
         PromptRunner runner = ai.withLlm("claude-sonnet-4-5")
                 .withToolObject(Tooling.class)
                 .withGenerateExamples(true)
-                .withGuardRails(new UserInputCriticalSeveritytGuardRail(), new SimpleThinkingBlocksGuardRail());
+                .withGuardRails(new UserInputCriticalSeverityGuardRail(), new SimpleThinkingBlocksGuardRail());
 
         String prompt = """
                 What is the hottest month in Florida and  provide its temperature.
@@ -418,7 +418,7 @@ class LLMAnthropicThinkingIT {
         // Given: Use the LLM configured for thinking tests
         PromptRunner runner = ai.withLlm("claude-sonnet-4-5")
                 .withToolObject(Tooling.class)
-                .withGuardRails(new UserInputCriticalSeveritytGuardRail())
+                .withGuardRails(new UserInputCriticalSeverityGuardRail())
                 .withGuardRails(new SimpleThinkingBlocksGuardRail());
 
         String prompt = "Think about the coldest month in Alaska and its temperature. Provide your analysis.";
@@ -505,4 +505,5 @@ class LLMAnthropicThinkingIT {
         logger.info("Complex thinking test completed successfully with {} thinking blocks",
                 thinkingBlocks.size());
     }
+
 }
