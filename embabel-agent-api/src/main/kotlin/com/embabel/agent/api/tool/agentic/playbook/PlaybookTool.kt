@@ -110,6 +110,15 @@ data class PlaybookTool internal constructor(
             description = description,
             inputSchema = Tool.InputSchema.empty(),
         ),
+        metadata = Tool.Metadata.DEFAULT,
+    )
+
+    /**
+     * Create a playbook tool with a full definition including custom input schema.
+     */
+    constructor(definition: Tool.Definition) : this(
+        definition = definition,
+        metadata = Tool.Metadata.DEFAULT,
     )
 
     override fun call(input: String): Tool.Result {
