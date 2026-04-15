@@ -13,58 +13,57 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.embabel.agent.spi
+package com.embabel.common.byok
 
-import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
 class DetectProviderTest {
 
-    private val mockService = mockk<LlmService<*>>()
-
     @Test
     fun `only successful candidate is returned`() {
+        val service = "winning-service"
         val result = detectProvider(
-            ByokFactory { throw InvalidApiKeyException("bad key") },
-            ByokFactory { mockService },
+            ByokFactory<String> { throw InvalidApiKeyException("bad key") },
+            ByokFactory<String> { service },
         )
-        assertSame(mockService, result)
+        assertSame(service, result)
     }
 
     @Test
     fun `all candidates fail throws InvalidApiKeyException`() {
         assertThrows<InvalidApiKeyException> {
             detectProvider(
-                ByokFactory { throw InvalidApiKeyException("bad") },
-                ByokFactory { throw InvalidApiKeyException("bad") },
-                ByokFactory { throw InvalidApiKeyException("bad") },
-                ByokFactory { throw InvalidApiKeyException("bad") },
+                ByokFactory<String> { throw InvalidApiKeyException("bad") },
+                ByokFactory<String> { throw InvalidApiKeyException("bad") },
+                ByokFactory<String> { throw InvalidApiKeyException("bad") },
+                ByokFactory<String> { throw InvalidApiKeyException("bad") },
             )
         }
     }
 
     @Test
     fun `single candidate returns service - settings flow`() {
-        val result = detectProvider(ByokFactory { mockService })
-        assertSame(mockService, result)
+        val service = "only-service"
+        val result = detectProvider(ByokFactory<String> { service })
+        assertSame(service, result)
     }
 
     @Test
-    fun `no candidates throws InvalidApiKeyException`() {
-        assertThrows<InvalidApiKeyException> {
-            detectProvider()
+    fun `no candidates throws IllegalArgumentException`() {
+        assertThrows<IllegalArgumentException> {
+            detectProvider<Any>()
         }
     }
 
     @Test
     fun `returned service is the one from the winning factory`() {
-        val anthropicService = mockk<LlmService<*>>()
+        val winner = "anthropic-service"
         val result = detectProvider(
-            ByokFactory { anthropicService },
-            ByokFactory { throw InvalidApiKeyException("bad") },
+            ByokFactory<String> { winner },
+            ByokFactory<String> { throw InvalidApiKeyException("bad") },
         )
-        assertSame(anthropicService, result)
+        assertSame(winner, result)
     }
 }

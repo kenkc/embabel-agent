@@ -19,12 +19,12 @@ import com.embabel.agent.api.models.DeepSeekModels
 import com.embabel.agent.api.models.GoogleGenAiModels
 import com.embabel.agent.api.models.MistralAiModels
 import com.embabel.agent.api.models.OpenAiModels
-import com.embabel.agent.spi.ByokFactory
-import com.embabel.agent.spi.InvalidApiKeyException
 import com.embabel.agent.spi.LlmService
 import com.embabel.agent.spi.support.springai.SpringAiLlmService
 import com.embabel.chat.UserMessage
 import com.embabel.common.ai.model.*
+import com.embabel.common.byok.ByokFactory
+import com.embabel.common.byok.InvalidApiKeyException
 import com.embabel.common.util.ObjectProviders
 import com.embabel.common.util.loggerFor
 import io.micrometer.observation.ObservationRegistry
@@ -134,7 +134,7 @@ open class OpenAiCompatibleModelFactory(
 
     /**
      * A self-contained BYOK spec for an OpenAI-compatible provider. Implements [ByokFactory]
-     * so it can be passed directly to [com.embabel.agent.spi.detectProvider].
+     * so it can be passed directly to [com.embabel.common.byok.detectProvider].
      *
      * Obtained via the companion factory methods ([openAi], [deepSeek], [mistral], [gemini],
      * or [byok] for custom providers). Use [validating] to override the default validation
@@ -146,7 +146,7 @@ open class OpenAiCompatibleModelFactory(
         private val validationModel: String,
         private val validationProvider: String,
         private val observationRegistry: ObservationRegistry = ObservationRegistry.NOOP,
-    ) : ByokFactory {
+    ) : ByokFactory<LlmService<*>> {
 
         /**
          * Returns a new [ByokSpec] with the given model and provider used for the

@@ -13,14 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.embabel.agent.spi
+package com.embabel.common.byok
 
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 
 /**
- * Concurrently attempts each candidate [ByokFactory] and returns the first [LlmService]
+ * Concurrently attempts each candidate [ByokFactory] and returns the first service of type [T]
  * that validates successfully. Remaining tasks are cancelled on first success.
  *
  * Typical usage — sign-up flow (fan-out across all supported BYOK providers):
@@ -41,14 +41,12 @@ import java.util.concurrent.Executors
  * ```
  *
  * @param candidates One or more [ByokFactory] instances to race.
- * @return The [LlmService] returned by the first successful factory.
- *   Call [LlmService.provider] on the result to retrieve the detected provider name.
- * @throws InvalidApiKeyException if all candidates fail or no candidates are supplied.
+ * @return The service returned by the first successful factory.
+ * @throws IllegalArgumentException if no candidates are supplied.
+ * @throws InvalidApiKeyException if all candidates fail validation.
  */
-fun detectProvider(vararg candidates: ByokFactory): LlmService<*> {
-    if (candidates.isEmpty()) {
-        throw InvalidApiKeyException("Key not valid for any supported provider")
-    }
+fun <T> detectProvider(vararg candidates: ByokFactory<T>): T {
+    require(candidates.isNotEmpty()) { "At least one ByokFactory candidate is required" }
     val exec = Executors.newVirtualThreadPerTaskExecutor()
     try {
         return exec.invokeAny(
