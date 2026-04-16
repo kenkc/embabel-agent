@@ -15,10 +15,8 @@
  */
 package com.embabel.agent.rag.service
 
-import com.embabel.agent.rag.model.Chunk
-import com.embabel.agent.rag.model.Fact
-import com.embabel.agent.rag.model.NamedEntityData
 import com.embabel.agent.rag.model.Retrievable
+import com.embabel.agent.rag.service.support.formatRetrievableResult
 
 /**
  * Implemented by classes that can format SimilarityResults objects into a string
@@ -37,30 +35,7 @@ object SimpleRetrievableResultsFormatter : RetrievableResultsFormatter {
     override fun formatResults(similarityResults: SimilarityResults<out Retrievable>): String {
         val results = similarityResults.results
         val header = "${results.size} results:"
-
-        val formattedResults = results.joinToString(separator = "\n---\n") { result ->
-            val formattedScore = "%.2f".format(result.score)
-
-            when (val match = result.match) {
-                is NamedEntityData -> {
-                    "$formattedScore: ${match.embeddableValue()}"
-                }
-
-                is Chunk -> {
-                    val urlHeader = match.uri?.let { "url: $it\n" } ?: ""
-                    "chunkId: ${match.id} $urlHeader$formattedScore - ${match.text}"
-                }
-
-                is Fact -> {
-                    "$formattedScore: fact - ${match.assertion}"
-                }
-
-                else -> {
-                    "$formattedScore: ${result.match.javaClass.simpleName} - ${match.infoString(verbose = true)}"
-                }
-            }
-        }
-
+        val formattedResults = results.joinToString(separator = "\n---\n") { formatRetrievableResult(it) }
         return if (results.isEmpty()) header else "$header\n\n$formattedResults"
     }
 }
