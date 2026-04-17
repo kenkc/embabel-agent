@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,21 +15,63 @@
  */
 package com.embabel.agent.spi.support
 
+import com.embabel.agent.api.annotation.LlmTool
 import com.embabel.agent.api.dsl.evenMoreEvilWizard
+import com.embabel.agent.api.tool.Tool
+import com.embabel.agent.api.tool.ToolObject
 import com.embabel.agent.core.AgentProcess
-import com.embabel.agent.spi.support.springai.DefaultToolDecorator
-import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentProcessRunning
+import com.embabel.agent.core.Blackboard
+import com.embabel.agent.core.ReplanRequestedException
+import com.embabel.agent.core.support.safelyGetToolsFrom
+import com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentProcessRunning
 import com.embabel.common.ai.model.LlmOptions
+import io.mockk.mockk
+import io.mockk.verify
 import org.junit.jupiter.api.Test
-import org.springframework.ai.support.ToolCallbacks
-import org.springframework.ai.tool.annotation.Tool
+import org.junit.jupiter.api.assertThrows
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
+private val Tool.Result.content: String
+    get() = when (this) {
+        is Tool.Result.Text -> content
+        is Tool.Result.WithArtifact -> content
+        is Tool.Result.Error -> message
+    }
+
 object RuntimeExceptionTool {
-    @Tool
+
+    @LlmTool
     fun toolThatThrowsRuntimeException(input: String): String {
         throw RuntimeException("This tool always fails")
+    }
+}
+
+object ReplanningAnnotatedTool {
+
+    @LlmTool(description = "Routes user to appropriate handler based on intent")
+    fun routeUser(message: String): String {
+        // Classify intent and request replan
+        throw ReplanRequestedException(
+            reason = "Classified as support request",
+            blackboardUpdater = { bb ->
+                bb["intent"] = "support"
+                bb["confidence"] = 0.95
+                bb["originalMessage"] = message
+            }
+        )
+    }
+}
+
+object SimpleReplanTool {
+
+    @LlmTool(description = "Always replans with minimal context")
+    fun triggerReplan(input: String): String {
+        throw ReplanRequestedException(
+            reason = "Replan triggered by tool",
+            blackboardUpdater = { bb -> bb["triggered"] = true }
+        )
     }
 }
 
@@ -39,9 +81,9 @@ class DefaultToolDecoratorTest {
     @Test
     fun `test handle runtime exception from tool`() {
         val toolDecorator = DefaultToolDecorator()
-        val badToolCallback = ToolCallbacks.from(RuntimeExceptionTool).single()
+        val badTool = safelyGetToolsFrom(ToolObject(RuntimeExceptionTool)).single()
         val decorated = toolDecorator.decorate(
-            tool = badToolCallback,
+            tool = badTool,
             agentProcess = dummyAgentProcessRunning(evenMoreEvilWizard()),
             action = null, llmOptions = LlmOptions(),
         )
@@ -51,8 +93,8 @@ class DefaultToolDecoratorTest {
         """.trimIndent()
         )
         assertTrue(
-            result.contains("This tool always fails"),
-            "Expected result to contain the exception message: Got '$result'"
+            result.content.contains("This tool always fails"),
+            "Expected result to contain the exception message: Got '${result.content}'"
         )
     }
 
@@ -61,16 +103,16 @@ class DefaultToolDecoratorTest {
         val toolDecorator = DefaultToolDecorator()
 
         class NeedsAgentProcess {
-            @Tool
+            @LlmTool
             fun toolThatNeedsAgentProcess(input: String): String {
                 assertNotNull(AgentProcess.get(), "Agent process must have been bound")
                 return "AgentProcess is bound"
             }
         }
 
-        val toolCallback = ToolCallbacks.from(NeedsAgentProcess()).single()
+        val tool = safelyGetToolsFrom(ToolObject(NeedsAgentProcess())).single()
         val decorated = toolDecorator.decorate(
-            tool = toolCallback,
+            tool = tool,
             agentProcess = dummyAgentProcessRunning(evenMoreEvilWizard()),
             action = null, llmOptions = LlmOptions(),
         )
@@ -79,7 +121,95 @@ class DefaultToolDecoratorTest {
             { "input": "anything at all" }
         """.trimIndent()
         )
-        assertTrue(result.contains("AgentProcess is bound"))
+        assertTrue(result.content.contains("AgentProcess is bound"))
+    }
+
+    @Test
+    fun `ReplanRequestedException propagates through decorator chain`() {
+        val toolDecorator = DefaultToolDecorator()
+        val replanTool = safelyGetToolsFrom(ToolObject(ReplanningAnnotatedTool)).single()
+        val decorated = toolDecorator.decorate(
+            tool = replanTool,
+            agentProcess = dummyAgentProcessRunning(evenMoreEvilWizard()),
+            action = null,
+            llmOptions = LlmOptions(),
+        )
+
+        val exception = assertThrows<ReplanRequestedException> {
+            decorated.call("""{ "message": "I need help with billing" }""")
+        }
+
+        assertEquals("Classified as support request", exception.reason)
+        val mockBlackboard = mockk<Blackboard>(relaxed = true)
+        exception.blackboardUpdater.accept(mockBlackboard)
+        verify { mockBlackboard["intent"] = "support" }
+        verify { mockBlackboard["confidence"] = 0.95 }
+        verify { mockBlackboard["originalMessage"] = "I need help with billing" }
+    }
+
+    @Test
+    fun `ReplanRequestedException is not suppressed by ExceptionSuppressingTool in decorator chain`() {
+        val toolDecorator = DefaultToolDecorator()
+        val replanTool = safelyGetToolsFrom(ToolObject(SimpleReplanTool)).single()
+        val decorated = toolDecorator.decorate(
+            tool = replanTool,
+            agentProcess = dummyAgentProcessRunning(evenMoreEvilWizard()),
+            action = null,
+            llmOptions = LlmOptions(),
+        )
+
+        // This should throw, not return an error result like RuntimeException would
+        val exception = assertThrows<ReplanRequestedException> {
+            decorated.call("""{ "input": "trigger" }""")
+        }
+
+        assertEquals("Replan triggered by tool", exception.reason)
+        val mockBlackboard = mockk<Blackboard>(relaxed = true)
+        exception.blackboardUpdater.accept(mockBlackboard)
+        verify { mockBlackboard["triggered"] = true }
+    }
+
+    @Test
+    fun `ReplanRequestedException preserves blackboard updater through decorator chain`() {
+        val toolDecorator = DefaultToolDecorator()
+
+        class ComplexReplanTool {
+            @LlmTool(description = "Tool with complex blackboard updates")
+            fun complexReplan(query: String): String {
+                throw ReplanRequestedException(
+                    reason = "Complex replan needed",
+                    blackboardUpdater = { bb ->
+                        bb["stringValue"] = "test"
+                        bb["intValue"] = 42
+                        bb["doubleValue"] = 3.14
+                        bb["boolValue"] = true
+                        bb["listValue"] = listOf("a", "b", "c")
+                        bb["mapValue"] = mapOf("nested" to "value")
+                    }
+                )
+            }
+        }
+
+        val tool = safelyGetToolsFrom(ToolObject(ComplexReplanTool())).single()
+        val decorated = toolDecorator.decorate(
+            tool = tool,
+            agentProcess = dummyAgentProcessRunning(evenMoreEvilWizard()),
+            action = null,
+            llmOptions = LlmOptions(),
+        )
+
+        val exception = assertThrows<ReplanRequestedException> {
+            decorated.call("""{ "query": "test query" }""")
+        }
+
+        val mockBlackboard = mockk<Blackboard>(relaxed = true)
+        exception.blackboardUpdater.accept(mockBlackboard)
+        verify { mockBlackboard["stringValue"] = "test" }
+        verify { mockBlackboard["intValue"] = 42 }
+        verify { mockBlackboard["doubleValue"] = 3.14 }
+        verify { mockBlackboard["boolValue"] = true }
+        verify { mockBlackboard["listValue"] = listOf("a", "b", "c") }
+        verify { mockBlackboard["mapValue"] = mapOf("nested" to "value") }
     }
 
 }

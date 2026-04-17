@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import com.embabel.common.ai.prompt.PromptContributor
  * CO-STAR prompt framework
  * See https://towardsdatascience.com/how-i-won-singapores-gpt-4-prompt-engineering-competition-34c195a93d41/
  */
-data class CoStar(
+data class CoStar @JvmOverloads constructor(
     val context: String,
     val objective: String,
     val style: String,

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,36 @@
 package com.embabel.agent.spi.support
 
 import com.embabel.agent.api.common.Asyncer
+import javax.annotation.concurrent.ThreadSafe
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
 import java.util.concurrent.Semaphore
 
+/**
+ * Asyncer implementation that uses an Executor for async operations
+ * with AgentProcess context propagation to worker threads.
+ */
+@ThreadSafe
 class ExecutorAsyncer(
     private val executor: Executor,
 ) : Asyncer {
 
     override fun <T> async(block: () -> T): CompletableFuture<T> {
-        return CompletableFuture.supplyAsync(block, executor)
+        // Capture AgentProcess from calling thread
+        val agentProcess = AgentProcessAccessor.getValue()
+
+        return CompletableFuture.supplyAsync({
+            if (agentProcess != null) {
+                AgentProcessAccessor.setValue(agentProcess)
+                try {
+                    block()
+                } finally {
+                    AgentProcessAccessor.reset() // cleanup
+                }
+            } else {
+                block()
+            }
+        }, executor)
     }
 
     override fun <T, R> parallelMap(

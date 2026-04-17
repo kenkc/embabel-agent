@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.embabel.agent.spi.support
 
 import com.embabel.common.util.StringTransformer
 import org.slf4j.LoggerFactory
+import org.springframework.ai.chat.model.ToolContext
 import org.springframework.ai.tool.ToolCallback
 import org.springframework.ai.tool.definition.ToolDefinition
 
@@ -32,8 +33,14 @@ class OutputTransformingToolCallback(
 
     override fun getToolDefinition(): ToolDefinition = delegate.toolDefinition
 
-    override fun call(toolInput: String): String {
-        val rawOutput = delegate.call(toolInput)
+    override fun call(toolInput: String): String =
+        transformOutput(toolInput) { delegate.call(toolInput) }
+
+    override fun call(toolInput: String, toolContext: ToolContext?): String =
+        transformOutput(toolInput) { delegate.call(toolInput, toolContext) }
+
+    private inline fun transformOutput(toolInput: String, action: () -> String): String {
+        val rawOutput = action()
         val transformed = outputTransformer.transform(rawOutput)
         logger.debug(
             "Tool {} called with input: {}, raw output: {}, transformed output: {}",

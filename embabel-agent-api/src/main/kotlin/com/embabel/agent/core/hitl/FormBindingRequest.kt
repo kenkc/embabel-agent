@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,8 @@ import com.embabel.agent.core.AgentProcess
 import com.embabel.common.util.loggerFor
 import com.embabel.ux.form.DefaultFormProcessor
 import com.embabel.ux.form.Form
-import com.embabel.ux.form.FormBinder
 import com.embabel.ux.form.FormSubmission
+import com.embabel.ux.form.bindTo
 import java.time.Instant
 import java.util.*
 
@@ -30,13 +30,19 @@ interface ValidationError
  * Present the user with a form
  * and bind it to the given class
  * @param O the class to bind the form submission to
+ * @param form the form to present to the user
+ * @param outputClass the class to bind the form submission to
+ * @param population an optional instance to pre-populate the form
+ * @param validationErrors optional validation errors to display on the form
+ * @param persistent whether this request should be persisted
  */
-class FormBindingRequest<O : Any>(
+class FormBindingRequest<O : Any> @JvmOverloads constructor(
     form: Form,
     val outputClass: Class<O>,
     val population: O? = null,
     val validationErrors: List<ValidationError> = emptyList(),
     persistent: Boolean = false,
+    val bindingName: String? = null,
 ) : AbstractAwaitable<Form, FormResponse>(
     payload = form,
     persistent = persistent,
@@ -52,20 +58,29 @@ class FormBindingRequest<O : Any>(
         if (!formSubmissionResult.valid) {
             throw IllegalStateException("Form submission is not valid: ${formSubmissionResult.validationErrors}")
         }
-        val formBinder = FormBinder(outputClass)
-        val boundInstance = formBinder.bind(formSubmissionResult)
+        val boundInstance = formSubmissionResult.bindTo(outputClass)
         return bind(boundInstance, agentProcess)
     }
 
-    fun bind(boundInstance: O, agentProcess: AgentProcess): ResponseImpact {
+    fun bind(
+        boundInstance: O,
+        agentProcess: AgentProcess,
+    ): ResponseImpact {
         logger.info("Bound form submission to {}", boundInstance)
-        agentProcess += boundInstance
+        if (bindingName != null) {
+            agentProcess[bindingName] = boundInstance
+        } else {
+            agentProcess += boundInstance
+        }
         return ResponseImpact.UPDATED
     }
 
     override fun toString(): String = infoString(verbose = false)
 }
 
+/**
+ * Response from the UX
+ */
 data class FormResponse(
     override val id: String = UUID.randomUUID().toString(),
     override val awaitableId: String,

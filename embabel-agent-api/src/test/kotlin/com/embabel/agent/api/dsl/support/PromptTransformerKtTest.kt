@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.embabel.agent.api.dsl.support
 
 import com.embabel.agent.api.dsl.Frog
 import com.embabel.agent.api.dsl.MagicVictim
+import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.core.*
 import com.embabel.agent.core.support.InMemoryBlackboard
 import com.embabel.chat.Message
@@ -28,7 +29,6 @@ import io.mockk.verify
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
-import org.springframework.ai.tool.ToolCallback
 
 
 data class PromptPerson(
@@ -61,7 +61,7 @@ class PromptTransformerKtTest {
             every { processContext.blackboard } returns blackboard
             every { processContext.agentProcess } returns mockAgentProcess
             every {
-                processContext.getValue(
+                mockAgentProcess.getValue(
                     IoBinding.DEFAULT_BINDING,
                     MagicVictim::class.java.name
                 )
@@ -102,7 +102,7 @@ class PromptTransformerKtTest {
             every { mockAgentProcess.processContext } returns processContext
             every { processContext.blackboard } returns InMemoryBlackboard()
             every { processContext.agentProcess } returns mockAgentProcess
-            every { processContext.getValue("person", PromptPerson::class.java.name) } returns person
+            every { mockAgentProcess.getValue("person", PromptPerson::class.java.name) } returns person
             every {
                 processContext.createObject(
                     any(),
@@ -115,7 +115,7 @@ class PromptTransformerKtTest {
 
             transformer.execute(processContext = processContext)
 
-            verify { processContext.getValue("person", PromptPerson::class.java.name) }
+            verify { mockAgentProcess.getValue("person", PromptPerson::class.java.name) }
         }
 
         @Test
@@ -161,7 +161,7 @@ class PromptTransformerKtTest {
             every { processContext.blackboard } returns InMemoryBlackboard()
             every { processContext.agentProcess } returns mockAgentProcess
             every {
-                processContext.getValue(
+                mockAgentProcess.getValue(
                     IoBinding.DEFAULT_BINDING,
                     MagicVictim::class.java.name
                 )
@@ -180,15 +180,15 @@ class PromptTransformerKtTest {
         }
 
         @Test
-        fun `transformer should handle tool groups and callbacks`() {
-            val toolCallback = mockk<ToolCallback>()
-            every { toolCallback.toolDefinition.name() } returns "test"
+        fun `transformer should handle tool groups and tools`() {
+            val tool = mockk<Tool>()
+            every { tool.definition.name } returns "test"
             val toolGroups = setOf(ToolGroupRequirement("math"), ToolGroupRequirement("web"))
 
             val transformer = promptTransformer<MagicVictim, Frog>(
                 name = "toolTransformer",
                 toolGroups = toolGroups.map { ToolGroupRequirement(it.role) }.toSet(),
-                toolCallbacks = listOf(toolCallback),
+                tools = listOf(tool),
                 inputClass = MagicVictim::class.java,
                 outputClass = Frog::class.java,
             ) {
@@ -205,7 +205,7 @@ class PromptTransformerKtTest {
             every { processContext.blackboard } returns InMemoryBlackboard()
             every { processContext.agentProcess } returns mockAgentProcess
             every {
-                processContext.getValue(
+                mockAgentProcess.getValue(
                     IoBinding.DEFAULT_BINDING,
                     MagicVictim::class.java.name
                 )

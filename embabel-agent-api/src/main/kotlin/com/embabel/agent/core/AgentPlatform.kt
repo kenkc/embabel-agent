@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 package com.embabel.agent.core
 
 import com.embabel.agent.api.common.PlatformServices
-import com.embabel.agent.common.Constants
 import com.embabel.agent.spi.ToolGroupResolver
+import com.embabel.agent.spi.common.Constants
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -81,24 +81,6 @@ interface AgentPlatform : AgentScope {
         processOptions: ProcessOptions = ProcessOptions(),
         bindings: Map<String, Any>,
     ): AgentProcess
-
-    /**
-     * Run the given agent with the given input, which will be added
-     * to the blackboard with the default binding.
-     * @param agent the agent to run. Does not need to be deployed to the platform
-     * @param processOptions the options for the process
-     * @param input the input to bind to the blackboard
-     */
-    @Deprecated("Use createAgentProcess and run or start instead")
-    fun runAgentWithInput(
-        agent: Agent,
-        processOptions: ProcessOptions = ProcessOptions(),
-        input: Any,
-    ): AgentProcess = runAgentFrom(
-        agent,
-        processOptions,
-        mapOf(IoBinding.DEFAULT_BINDING to input),
-    )
 
     /**
      * Create an agent process with the given options and bindings.

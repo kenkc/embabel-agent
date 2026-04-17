@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,17 @@
 package com.embabel.plan.goap
 
 import com.embabel.common.util.time
+import com.embabel.plan.common.condition.*
+import com.embabel.plan.goap.astar.AStarGoapPlanner
+import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.util.*
 
 object EmptyWorldStateDeterminer : WorldStateDeterminer {
-    override fun determineWorldState(): GoapWorldState {
-        return GoapWorldState()
+    override fun determineWorldState(): ConditionWorldState {
+        return ConditionWorldState()
     }
 
     override fun determineCondition(condition: String): ConditionDetermination =
@@ -35,14 +38,14 @@ class GoapPlannerTest {
     @Nested
     inner class Crime {
 
-        val cookDrugs = GoapAction(
+        val cookDrugs = ConditionAction(
             name = "Cook drugs",
             preconditions = emptyMap(),
             effects = mapOf("hasDrugs" to ConditionDetermination(true), "legalPeril" to ConditionDetermination(true)),
-            cost = 1.20
+            cost = { 1.20 },
         )
 
-        val sellDrugs = GoapAction(
+        val sellDrugs = ConditionAction(
             name = "Sell drugs",
             preconditions = mapOf("hasDrugs" to ConditionDetermination(true)),
             effects = mapOf(
@@ -50,52 +53,52 @@ class GoapPlannerTest {
                 "hasMoney" to ConditionDetermination(true),
                 "legalPeril" to ConditionDetermination(true)
             ),
-            cost = 1.20,
+            cost = { 1.20 },
         )
 
-        val buyGun = GoapAction(
+        val buyGun = ConditionAction(
             name = "Buy gun",
             preconditions = mapOf("hasMoney" to ConditionDetermination(true)),
             effects = mapOf("hasGun" to ConditionDetermination(true), "hasMoney" to ConditionDetermination(false)),
-            cost = 1.0,
+            cost = { 1.0 },
         )
 
-        val bribeCop = GoapAction(
+        val bribeCop = ConditionAction(
             name = "Bribe cop",
             preconditions = mapOf("hasMoney" to ConditionDetermination(true)),
             effects = mapOf("legalPeril" to ConditionDetermination(false), "hasMoney" to ConditionDetermination(false)),
-            cost = 2.0,
+            cost = { 2.0 },
         )
 
-        val shootEnemy = GoapAction(
+        val shootEnemy = ConditionAction(
             name = "Shoot enemy",
             preconditions = mapOf("hasGun" to ConditionDetermination(true)),
             effects = mapOf("enemyDead" to ConditionDetermination(true), "legalPeril" to ConditionDetermination(true)),
-            cost = 1.0,
+            cost = { 1.0 },
         )
 
-        val buyPoison = GoapAction(
+        val buyPoison = ConditionAction(
             name = "Buy poison",
             preconditions = mapOf("hasMoney" to ConditionDetermination(true)),
             effects = mapOf("hasPoison" to ConditionDetermination(true), "hasMoney" to ConditionDetermination(false)),
-            cost = 3.0,
+            cost = { 3.0 },
         )
 
-        val poisonEnemy = GoapAction(
+        val poisonEnemy = ConditionAction(
             name = "Poison enemy",
             preconditions = mapOf("hasPoison" to ConditionDetermination(true)),
             effects = mapOf("enemyDead" to ConditionDetermination(true), "legalPeril" to ConditionDetermination(true)),
-            cost = 1.0
+            cost = { 1.0 },
         )
 
         val getAwayWithMurderGoal =
-            GoapGoal(
+            ConditionGoal(
                 name = "getAwayWithMurder",
                 preconditions = mapOf(
                     "enemyDead" to ConditionDetermination(true),
                     "legalPeril" to ConditionDetermination(false)
                 ),
-                value = 10.0,
+                value = { 10.0 },
             )
 
         val actions = setOf(
@@ -125,23 +128,23 @@ class GoapPlannerTest {
         @Test
         fun `should find 2 plans`() {
             val planner = AStarGoapPlanner(EmptyWorldStateDeterminer)
-            val hasGunGoal = GoapGoal("hasGun", value = 1.0)
-            val goapSystem = GoapPlanningSystem(actions, setOf(getAwayWithMurderGoal, hasGunGoal))
+            val hasGunGoal = ConditionGoal("hasGun", value = { 1.0 })
+            val goapSystem = ConditionPlanningSystem(actions, setOf(getAwayWithMurderGoal, hasGunGoal))
             val plans = planner.plansToGoals(goapSystem)
             assertEquals(plans.size, 2)
             val best = plans.first()
             assertEquals(
                 bestPlanActions,
                 best.actions.map { it.name })
-            assertTrue(best.netValue > 0.0)
-            assertTrue(best.cost > 0.0)
+            assertTrue(best.netValue(mockk()) > 0.0)
+            assertTrue(best.cost(mockk()) > 0.0)
         }
 
         @Test
         fun `best plan to any goal`() {
             val planner = AStarGoapPlanner(EmptyWorldStateDeterminer)
-            val hasGunGoal = GoapGoal(name = "hasGun", value = 1.0)
-            val goapSystem = GoapPlanningSystem(actions, setOf(getAwayWithMurderGoal, hasGunGoal))
+            val hasGunGoal = ConditionGoal(name = "hasGun", value = { 1.0 })
+            val goapSystem = ConditionPlanningSystem(actions, setOf(getAwayWithMurderGoal, hasGunGoal))
             val plan = planner.bestValuePlanToAnyGoal(goapSystem)
             assertNotNull(plan)
             assertEquals(
@@ -152,8 +155,8 @@ class GoapPlannerTest {
         @Test
         fun `find path from unknown`() {
             val touchyWorldStateDeterminer = object : WorldStateDeterminer {
-                override fun determineWorldState(): GoapWorldState {
-                    return GoapWorldState(
+                override fun determineWorldState(): ConditionWorldState {
+                    return ConditionWorldState(
                         state = mapOf(
                             "hasMoney" to ConditionDetermination(true),
                             "enemyDead" to ConditionDetermination.UNKNOWN,
@@ -178,8 +181,8 @@ class GoapPlannerTest {
             val forceEvaluated = mutableListOf<String>()
             val touchyWorldStateDeterminer = object : WorldStateDeterminer {
 
-                override fun determineWorldState(): GoapWorldState {
-                    return GoapWorldState(
+                override fun determineWorldState(): ConditionWorldState {
+                    return ConditionWorldState(
                         state = mapOf(
                             "legalPeril" to ConditionDetermination.FALSE,
                             "enemyDead" to ConditionDetermination.UNKNOWN,
@@ -203,10 +206,10 @@ class GoapPlannerTest {
             assertTrue(forceEvaluated.contains("enemyDead"), "Should have force evaluated enemy dead")
         }
 
-        private fun generateRandomActions(num: Int): List<GoapAction> {
+        private fun generateRandomActions(num: Int): List<ConditionAction> {
             val random = Random()
             return List(num) {
-                GoapAction(
+                ConditionAction(
                     name = random.nextInt().toString(),
                     preconditions = mapOf(
                         "hasGun" to ConditionDetermination(true),
@@ -218,7 +221,7 @@ class GoapPlannerTest {
                         UUID.randomUUID().toString() to ConditionDetermination(true),
                         UUID.randomUUID().toString() to ConditionDetermination(false)
                     ),
-                    cost = 3.0,
+                    cost = { 3.0 },
                 )
             }
         }

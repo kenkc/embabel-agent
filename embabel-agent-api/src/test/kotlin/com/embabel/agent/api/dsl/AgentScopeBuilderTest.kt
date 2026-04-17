@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,10 @@ import com.embabel.agent.api.common.support.Branch
 import com.embabel.agent.core.Agent
 import com.embabel.agent.core.AgentProcessStatusCode
 import com.embabel.agent.core.ProcessOptions
-import com.embabel.agent.core.all
+import com.embabel.agent.core.objectsOfType
 import com.embabel.agent.domain.io.UserInput
 import com.embabel.agent.spi.support.SpiPerson
-import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentPlatform
+import com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentPlatform
 import com.embabel.common.core.MobyNameGenerator
 import com.embabel.common.core.types.Semver
 import com.embabel.common.core.types.Semver.Companion.DEFAULT_VERSION
@@ -57,10 +57,10 @@ class AgentScopeBuilderTest {
             val agent: Agent = splitGarden()
             val ap = dummyAgentPlatform()
             val processOptions = ProcessOptions()
-            val result = ap.runAgentWithInput(
+            val result = ap.runAgentFrom(
                 agent = agent,
                 processOptions = processOptions,
-                input = UserInput("do something"),
+                bindings = mapOf("it" to UserInput("do something")),
             )
             assertEquals(AgentProcessStatusCode.COMPLETED, result.status)
             assertEquals(
@@ -364,7 +364,7 @@ class AgentScopeBuilderTest {
                 "Expected history:\nActual:\n${result.processContext.agentProcess.history.joinToString("\n")}"
             )
             assertTrue(result.lastResult() is AllNames)
-            assertTrue(result.all<Thing>().isNotEmpty(), "Should have got interim result from agent")
+            assertTrue(result.objectsOfType<Thing>().isNotEmpty(), "Should have got interim result from agent")
         }
 
 
@@ -394,7 +394,7 @@ class AgentScopeBuilderTest {
                 "Expected history:\nActual:\n${result.processContext.agentProcess.history.joinToString("\n")}"
             )
             assertTrue(result.lastResult() is AllNames)
-            assertTrue(result.all<Thing>().isNotEmpty(), "Should have got interim result from agent")
+            assertTrue(result.objectsOfType<Thing>().isNotEmpty(), "Should have got interim result from agent")
         }
     }
 
@@ -434,9 +434,16 @@ class AgentScopeBuilderTest {
     }
 }
 
-data class GeneratedName(val name: String, val reason: String)
+data class GeneratedName(
+    val name: String,
+    val reason: String,
+)
+
 data class GeneratedNames(val names: List<GeneratedName>)
-data class AllNames(val accepted: List<GeneratedName>, val rejected: List<GeneratedName>)
+data class AllNames(
+    val accepted: List<GeneratedName>,
+    val rejected: List<GeneratedName>,
+)
 
 data class Garden(val name: String)
 

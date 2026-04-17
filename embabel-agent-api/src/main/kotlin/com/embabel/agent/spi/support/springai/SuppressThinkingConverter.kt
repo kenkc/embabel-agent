@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -74,7 +74,7 @@ class SuppressThinkingConverter<T>(
     override fun convert(source: String): T? {
         val sanitization = identifyThinkBlock(source)
         sanitization.thinkBlock?.let {
-            logger.info(
+            logger.trace(
                 "Think block detected in input: '{}': Remaining content: '{}'",
                 it,
                 sanitization.cleaned,
@@ -92,7 +92,7 @@ class SuppressThinkingConverter<T>(
      *
      * @return The format description string from the delegate, or null if the delegate doesn't provide one
      */
-    override fun getFormat(): String? = delegate.format
+    override fun getFormat(): String = delegate.format
 
     private fun identifyThinkBlock(input: String): ThinkBlockSanitization {
         // First try to parse the input as JSON to see if it is already clean
@@ -142,17 +142,29 @@ internal fun thinkBlockSanitization(
     thinkBlockFinders: List<ThinkBlockFinder>,
     input: String,
 ): ThinkBlockSanitization? {
+    // Apply all finders sequentially rather than stopping at first match
+    var cleanedInput = input
+    var thinkBlock: String? = null
+
     for (thinkBlockFinder in thinkBlockFinders) {
-        val thinkBlock = thinkBlockFinder(input)
-        if (thinkBlock != null && thinkBlock.isNotEmpty()) {
-            return ThinkBlockSanitization(
-                input = input,
-                thinkBlock = thinkBlock,
-                cleaned = input.replace(thinkBlock, ""),
-            )
+        // Apply finder to progressively cleaned up input
+        thinkBlockFinder(cleanedInput)?.let { found ->
+            if (found.isNotEmpty()) {
+                thinkBlock = found
+                cleanedInput = cleanedInput.replace(found, "")
+            }
         }
     }
-    return null
+
+    return if (thinkBlock != null) {
+        ThinkBlockSanitization(
+            input = input,
+            thinkBlock = thinkBlock,
+            cleaned = cleanedInput,
+        )
+    } else {
+        null
+    }
 }
 
 /**

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,16 @@
  */
 package com.embabel.agent.api.common
 
+import com.embabel.agent.api.channel.OutputChannel
 import com.embabel.agent.api.common.autonomy.Autonomy
-import com.embabel.agent.channel.OutputChannel
+import com.embabel.agent.api.event.AgenticEventListener
 import com.embabel.agent.core.AgentPlatform
-import com.embabel.agent.event.AgenticEventListener
-import com.embabel.agent.spi.LlmOperations
+import com.embabel.agent.core.AgentProcessRepository
+import com.embabel.agent.core.expression.LogicalExpressionParser
+import com.embabel.agent.core.internal.LlmOperations
 import com.embabel.agent.spi.OperationScheduler
+import com.embabel.agent.spi.config.spring.AgentPlatformProperties
+import com.embabel.chat.ConversationFactoryProvider
 import com.embabel.common.ai.model.ModelProvider
 import com.embabel.common.textio.template.TemplateRenderer
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -50,11 +54,14 @@ interface PlatformServices {
      */
     val operationScheduler: OperationScheduler
 
+    val agentProcessRepository: AgentProcessRepository
+
     /**
      * Asyncer for async operations
      */
     val asyncer: Asyncer
 
+    val logicalExpressionParser: LogicalExpressionParser
 
     val objectMapper: ObjectMapper
 
@@ -66,5 +73,22 @@ interface PlatformServices {
 
     fun modelProvider(): ModelProvider
 
+    /**
+     * Get the conversation factory provider for resolving conversation factories by type.
+     *
+     * Requires `embabel-chat-store` on the classpath. Without it,
+     * this method throws [org.springframework.beans.factory.NoSuchBeanDefinitionException].
+     */
+    fun conversationFactoryProvider(): ConversationFactoryProvider
+
     fun withEventListener(agenticEventListener: AgenticEventListener): PlatformServices
+
+    /**
+     * Returns the platform-level default QoS properties for actions.
+     *
+     * Implementations should return [AgentPlatformProperties.ActionQosProperties]
+     * with all-null fields when no Spring context is available (e.g. in tests),
+     * which causes resolution to fall back to [com.embabel.agent.core.ActionQos] defaults.
+     */
+    fun actionQosProperties(): AgentPlatformProperties.ActionQosProperties
 }

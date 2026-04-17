@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,27 +15,35 @@
  */
 package com.embabel.chat
 
-import com.embabel.agent.channel.OutputChannel
-import com.embabel.agent.identity.User
+import com.embabel.agent.api.channel.OutputChannel
+import com.embabel.agent.api.identity.User
 
 /**
  * A chatbot can conduct multiple chat sessions,
- * each identified by a contextId.
+ * each identified by a conversationId.
  */
 interface Chatbot {
 
     /**
-     * Create a new chat session.
-     * If user is provided, the session will be associated with that user.
-     * Optionally, a system message can be provided to set the context for the session.
+     * Create a new chat session, or restore an existing one.
+     *
+     * If [contextId] is provided, objects from that context are loaded into the blackboard
+     * (e.g., user preferences, prior state).
+     *
+     * If [conversationId] is provided and a conversation exists in storage,
+     * the session will be restored with its message history. Otherwise,
+     * a new conversation is created with that ID.
+     *
      * @param user the user to associate the session with, or null for anonymous
      * @param outputChannel the output channel to send messages to
-     * @param systemMessage optional system message to set the context for the session
+     * @param contextId optional context ID to load prior state from
+     * @param conversationId optional ID to restore an existing conversation, or create with specific ID
      */
     fun createSession(
         user: User?,
         outputChannel: OutputChannel,
-        systemMessage: String? = null,
+        contextId: String? = null,
+        conversationId: String? = null,
     ): ChatSession
 
     /**

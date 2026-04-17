@@ -4,12 +4,20 @@
     <parent>
         <groupId>com.embabel.agent</groupId>
         <artifactId>embabel-agent-starters</artifactId>
-        <version>0.1.4-SNAPSHOT</version>
+        <version>0.4.0-SNAPSHOT</version>
     </parent>
     <artifactId>embabel-agent-starter-mcpserver</artifactId>
     <packaging>jar</packaging>
     <name>Embabel Agent McpServer Starter</name>
     <description>Embabel Agent Starter MCP Server</description>
+    <url>https://github.com/embabel/embabel-agent</url>
+
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
 
     <dependencies>
         <dependency>
@@ -19,7 +27,7 @@
 
         <dependency>
             <groupId>com.embabel.agent</groupId>
-            <artifactId>embabel-agent-mcpserver</artifactId>
+            <artifactId>embabel-agent-mcpserver-autoconfigure</artifactId>
         </dependency>
     </dependencies>
 </project>

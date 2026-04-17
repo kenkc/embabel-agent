@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,19 +21,31 @@ import com.embabel.agent.event.AgentProcessRagEvent
 import com.embabel.agent.event.RagEventListener
 import com.embabel.agent.event.RagRequestReceivedEvent
 import com.embabel.agent.event.RagResponseEvent
-import com.embabel.agent.rag.*
+import com.embabel.agent.rag.model.Chunk
+import com.embabel.agent.rag.model.ContentElement
+import com.embabel.agent.rag.model.NamedEntityData
 import com.embabel.agent.rag.pipeline.event.InitialRequestRagPipelineEvent
 import com.embabel.agent.rag.pipeline.event.InitialResponseRagPipelineEvent
+import com.embabel.agent.rag.service.*
 import org.slf4j.LoggerFactory
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 
 /**
  * Decorates a Rag Service with an enhancement pipeline.
  */
+@EnableConfigurationProperties(RagServiceEnhancerProperties::class)
 class PipelinedRagServiceEnhancer(
-    val ragServiceEnhancerProperties: RagServiceEnhancerProperties = RagServiceEnhancerProperties(),
+    val ragServiceEnhancerProperties: RagServiceEnhancerProperties,
+    val hyDEQueryGenerator: HyDEQueryGenerator,
 ) : RagServiceEnhancer {
 
     private val logger = LoggerFactory.getLogger(PipelinedRagServiceEnhancer::class.java)
+
+    init {
+        logger.info(
+            "Using properties: {}", ragServiceEnhancerProperties
+        )
+    }
 
     override fun create(
         operationContext: OperationContext,
@@ -68,37 +80,22 @@ class PipelinedRagServiceEnhancer(
         override val description
             get() = "Pipelined RAG service wrapping ${delegate.name}: ${delegate.description}"
 
-        private fun hydeQuery(
-            ragRequest: RagRequest,
-            hyDE: HyDE,
-        ): String {
-            val hydeQuery = operationContext
-                .ai()
-                .withLlm(ragServiceEnhancerProperties.compressionLlm)
-                .generateText(
-                    """
-                    Given the following request, generate a plausible hypothetical
-                    answer.
-                    Don't worry if the answer isn't accurate; just make it a reasonable
-                    example of an answer to the query.
-                    The answer should be at most ${ragRequest.hyDE?.wordCount ?: 50} words.
-
-                    REQUEST:
-                    ${ragRequest.query}
-
-                    CONTEXT FOR THE ANSWER:
-                    ${hyDE.context}
-                """.trimIndent()
-                )
-            logger.info("{} -> Generated HyDE query: {}", ragRequest.query, hydeQuery)
-            return hydeQuery
-        }
 
         override fun search(ragRequest: RagRequest): RagResponse {
             listener.onRagEvent(RagRequestReceivedEvent(ragRequest))
             logger.info("Performing initial rag search for {} using RagService {}", ragRequest, delegate.name)
+            val hyDE = ragRequest.hintOfType<HyDE>()
+            val initialQuery = hyDE?.let { hyDE ->
+                hyDEQueryGenerator.hydeQuery(
+                    ragRequest = ragRequest,
+                    hyDE = hyDE,
+                    llm = ragServiceEnhancerProperties.compressionLlm,
+                    ai = operationContext.ai(),
+                )
+            } ?: ragRequest.query
+            // We are more generous in the initial request to give the enhancers more to work with
             val initialRequest = ragRequest.copy(
-                query = ragRequest.hyDE?.let { hydeQuery(ragRequest, it) } ?: ragRequest.query,
+                query = initialQuery,
                 topK = ragRequest.topK * 2,
                 similarityThreshold = ragRequest.similarityThreshold / 2,
             )
@@ -112,7 +109,9 @@ class PipelinedRagServiceEnhancer(
             val pipeline = AdaptivePipelineRagResponseEnhancer(
                 enhancers = buildList {
                     add(DeduplicatingEnhancer)
-                    if (ragRequest.compressionConfig.enabled) {
+                    add(ChunkMergingEnhancer)
+                    val resultCompression = ragRequest.hintOfType<ResultCompression>()
+                    if (resultCompression?.enabled == true) {
                         add(
                             PromptedContextualCompressionEnhancer(
                                 operationContext,
@@ -133,8 +132,11 @@ class PipelinedRagServiceEnhancer(
                 enhancedRagResponse.results.size,
                 enhancedRagResponse.results.count { it.match is Chunk },
                 enhancedRagResponse.results.count { it.match is ContentElement && it.match !is Chunk },
-                enhancedRagResponse.results.count { it.match is RetrievableEntity },
+                enhancedRagResponse.results.count { it.match is NamedEntityData },
             )
+            logger.info(
+                "Results: {}",
+                enhancedRagResponse.results.joinToString("\n") { "- ${it.match}" })
             return enhancedRagResponse
         }
 

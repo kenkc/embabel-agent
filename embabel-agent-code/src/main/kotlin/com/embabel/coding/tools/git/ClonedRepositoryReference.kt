@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.embabel.coding.tools.git
 
-import com.embabel.agent.api.common.LlmReference
+import com.embabel.agent.api.reference.LlmReference
 import com.embabel.agent.domain.library.code.SymbolSearch
 import com.embabel.agent.tools.file.DefaultFileReadLog
 import com.embabel.agent.tools.file.FileReadLog
@@ -47,7 +47,7 @@ class ClonedRepositoryReference(
 ) : AutoCloseable, FileReadTools, SymbolSearch, FileReadLog by DefaultFileReadLog(), LlmReference {
 
     override val name: String
-        get() = url.substringAfterLast('/')
+        get() = url.substringAfterLast('/').removeSuffix(".git")
 
     override val fileContentTransformers: List<StringTransformer>
         get() = listOf(WellKnownFileContentTransformers.removeApacheLicenseHeader)

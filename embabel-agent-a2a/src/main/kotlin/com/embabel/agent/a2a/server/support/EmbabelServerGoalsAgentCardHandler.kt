@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,7 +58,7 @@ class EmbabelServerGoalsAgentCardHandler(
             .documentationUrl("https://embabel.com/docs")
             .capabilities(
                 AgentCapabilities.Builder()
-                    .streaming(false) // TODO are they planning to support streaming?
+                    .streaming(true)
                     .pushNotifications(false)
                     .stateTransitionHistory(false)
                     .extensions(emptyList())
@@ -72,7 +72,7 @@ class EmbabelServerGoalsAgentCardHandler(
                 ).skills(agentPlatform.name)
             )
             .supportsAuthenticatedExtendedCard(false)
-            .protocolVersion("0.2.5")
+            .protocolVersion("0.3.0")
             .build()
         logger.info("Returning agent card: {}", agentCard)
         return agentCard

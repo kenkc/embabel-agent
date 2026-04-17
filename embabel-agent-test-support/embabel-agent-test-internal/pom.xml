@@ -4,17 +4,57 @@
     <parent>
         <groupId>com.embabel.agent</groupId>
         <artifactId>embabel-agent-test-support</artifactId>
-        <version>0.1.4-SNAPSHOT</version>
+        <version>0.4.0-SNAPSHOT</version>
     </parent>
     <artifactId>embabel-agent-test-internal</artifactId>
     <packaging>jar</packaging>
     <name>Embabel Agent Internal Test Framework</name>
     <description>Test Support Framework internal Modules</description>
+    <url>https://github.com/embabel/embabel-agent</url>
+
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
 
     <dependencies>
+        <!-- Main Dependencies -->
+        <dependency>
+            <groupId>com.embabel.agent</groupId>
+            <artifactId>embabel-agent-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.embabel.agent</groupId>
+            <artifactId>embabel-agent-domain</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.embabel.agent</groupId>
             <artifactId>embabel-agent-test</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.embabel.agent</groupId>
+            <artifactId>embabel-agent-test-common</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webmvc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.mockk</groupId>
+            <artifactId>mockk-jvm</artifactId>
+            <scope>compile</scope>
         </dependency>
     </dependencies> 
 

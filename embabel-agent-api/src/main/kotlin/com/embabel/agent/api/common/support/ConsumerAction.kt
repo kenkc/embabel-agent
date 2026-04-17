@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,18 +19,18 @@ import com.embabel.agent.api.common.Transformation
 import com.embabel.agent.core.ActionQos
 import com.embabel.agent.core.IoBinding
 import com.embabel.agent.core.ToolGroupRequirement
-import com.embabel.common.core.types.ZeroToOne
+import com.embabel.plan.CostComputation
 
 /**
  * Action that has input preconditions, but produces no output
  */
-class ConsumerAction<I>(
+internal class ConsumerAction<I>(
     name: String,
     description: String = name,
     pre: List<String> = emptyList(),
     post: List<String> = emptyList(),
-    cost: ZeroToOne = 0.0,
-    value: ZeroToOne = 0.0,
+    cost: CostComputation = { 0.0 },
+    value: CostComputation = { 0.0 },
     canRerun: Boolean = false,
     qos: ActionQos = ActionQos(),
     inputClass: Class<I>,

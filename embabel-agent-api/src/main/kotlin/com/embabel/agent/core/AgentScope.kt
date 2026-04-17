@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package com.embabel.agent.core
 
+import com.embabel.agent.api.common.StuckHandler
+import com.embabel.agent.api.common.scope.AgentScopeBuilder
 import com.embabel.common.core.types.Described
 import com.embabel.common.core.types.HasInfoString
 import com.embabel.common.core.types.Named
@@ -41,13 +43,22 @@ interface ActionSource {
  * Defines the scope of an agent or agents: Goals, conditions and actions.
  * Both Agents and AgentPlatforms are AgentScopes.
  */
-interface AgentScope : Named, Described, GoalSource, ConditionSource, ActionSource, DataDictionary, HasInfoString {
+interface AgentScope : Named, Described, GoalSource, ConditionSource, ActionSource, DataDictionary, HasInfoString,
+    AgentScopeBuilder {
 
     /**
      * Whether to hide the agent's actions and conditions
      * from the outside world, defaults to false.
      */
     val opaque: Boolean
+
+    /**
+     * Handler to call when an agent created from this scope gets stuck.
+     * Defaults to null.
+     */
+    @get:JsonIgnore
+    val stuckHandler: StuckHandler?
+        get() = null
 
     @get:JsonIgnore
     override val domainTypes: Collection<DomainType>
@@ -87,25 +98,39 @@ interface AgentScope : Named, Described, GoalSource, ConditionSource, ActionSour
             actions = actions,
             goals = goals,
             conditions = conditions,
+            stuckHandler = stuckHandler,
             opaque = opaque,
+            domainTypes = domainTypes.toList(),
         )
         return newAgent
     }
 
     fun resolveType(name: String): DomainType {
         return domainTypes.find { it.name == name }
-            ?: error("Schema type '$name' not found in agent ${this.name}: types were ${domainTypes.joinToString(", ") { it.name }}")
+            ?: error("Schema type '$name' not found in agent ${this.name}: types were [${domainTypes.joinToString(", ") { it.name }}]")
     }
 
     companion object {
 
+        /**
+         * Create an AgentScope with the given parameters. The resulting scope will have no parent scopes.
+         * @param name name of the scope
+         * @param description description of the scope
+         * @param actions actions available to agents created from this scope
+         * @param goals goals that agents created from this scope will try to achieve
+         * @param conditions conditions that agents created from this scope can check
+         * @param referenceTypes additional types that will be brought in.
+         * Necessary if only dynamic types are used in the actions and conditions, or if you want to include types from a shared library without including all of their actions and conditions.
+         */
         operator fun invoke(
             name: String,
             description: String = name,
             actions: List<Action> = emptyList(),
             goals: Set<Goal> = emptySet(),
+            referenceTypes: Collection<DomainType> = emptyList(),
             conditions: Set<Condition> = emptySet(),
             opaque: Boolean = false,
+            stuckHandler: StuckHandler? = null,
         ): AgentScope {
             return AgentScopeImpl(
                 name = name,
@@ -114,9 +139,13 @@ interface AgentScope : Named, Described, GoalSource, ConditionSource, ActionSour
                 goals = goals,
                 conditions = conditions,
                 opaque = opaque,
+                stuckHandler = stuckHandler,
+                referenceTypes = referenceTypes,
             )
         }
     }
+
+    override fun createAgentScope(): AgentScope = this
 }
 
 private data class AgentScopeImpl(
@@ -125,6 +154,10 @@ private data class AgentScopeImpl(
     override val actions: List<Action>,
     override val goals: Set<Goal>,
     override val conditions: Set<Condition>,
-    override val domainTypes: Collection<DynamicType> = emptyList(),
-    override val opaque: Boolean = false,
-) : AgentScope
+    override val opaque: Boolean,
+    override val stuckHandler: StuckHandler?,
+    private val referenceTypes: Collection<DomainType>,
+) : AgentScope {
+
+    override val domainTypes = super.domainTypes + referenceTypes
+}

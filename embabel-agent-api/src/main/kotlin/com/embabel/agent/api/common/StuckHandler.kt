@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  */
 package com.embabel.agent.api.common
 
+import com.embabel.agent.api.event.AbstractAgentProcessEvent
 import com.embabel.agent.core.AgentProcess
-import com.embabel.agent.event.AbstractAgentProcessEvent
 
 enum class StuckHandlingResultCode {
     REPLAN,

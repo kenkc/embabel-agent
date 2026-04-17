@@ -5,8 +5,13 @@ Domain objects in Embabel are not just strongly-typed data structures - they are
 
 ==== Objects with Behavior
 
-Unlike simple structs or DTOs, Embabel domain objects can encapsulate business logic and expose it to LLMs through the `@Tool` annotation:
+Unlike simple structs or DTOs, Embabel domain objects can encapsulate business logic and expose it to LLMs through the `@Tool` annotation.
+For example:
 
+[tabs]
+====
+Java::
++
 [source,java]
 ----
 @Entity
@@ -15,7 +20,7 @@ public class Customer {
     private LoyaltyLevel loyaltyLevel;
     private List<Order> orders;
 
-    @Tool(description = "Calculate the customer's loyalty discount percentage")
+    @Tool(description = "Calculate the customer's loyalty discount percentage") // <1>
     public BigDecimal getLoyaltyDiscount() {
         return loyaltyLevel.calculateDiscount(orders.size());
     }
@@ -27,47 +32,104 @@ public class Customer {
             .sum() > 1000.0;
     }
 
-    // Regular methods not exposed to LLMs
-    private void updateLoyaltyLevel() {
+    public void updateLoyaltyLevel() { // <2>
         // Internal business logic
     }
 }
 ----
 
+Kotlin::
++
+[source,kotlin]
+----
+@Entity
+class Customer(
+    private val name: String,
+    private val loyaltyLevel: LoyaltyLevel,
+    private val orders: List<Order>
+) {
+    @Tool(description = "Calculate the customer's loyalty discount percentage") // <1>
+    fun getLoyaltyDiscount(): BigDecimal {
+        return loyaltyLevel.calculateDiscount(orders.size)
+    }
+
+    @Tool(description = "Check if customer is eligible for premium service")
+    fun isPremiumEligible(): Boolean {
+        return orders.sumOf { it.total } > 1000.0
+    }
+
+    fun updateLoyaltyLevel() { // <2>
+        // Internal business logic
+    }
+}
+----
+====
+
+<1> The `@Tool` annotation exposes this method to LLMs when the object is added via `PrompRunner.withToolObject()`.
+<2> Unannotated methods such as `updateLoyaltyLevel` are never exposed to LLMs, regardless of their visibility level.
+This ensures that tool exposure is safe, explicit and controlled.
+
 ==== Selective Tool Exposure
 
-The `@Tool` annotation allows you to selectively expose domain object methods to LLMs:
+The `@Tool` annotation allows you to selectively expose domain object methods to LLMs.
+For example:
 
-- **Business Logic**: Expose methods that provide business value to the LLM
-- **Calculated Properties**: Methods that compute derived values
+- **Business Logic**: Expose methods that provide _safely invocable_ business value to the LLM
+- **Calculated Properties**: Methods that compute derived values.
+This can help LLMs with calculations they might otherwise get wrong.
 - **Business Rules**: Methods that implement domain-specific rules
-- **Keep Private**: Internal implementation details remain hidden
 
-==== Use in Actions
+IMPORTANT: Always keep internal implementation details hidden, and think carefully before exposing methods that mutate state or have side effects.
 
-Domain objects can be used naturally in action methods, combining LLM interactions with traditional object-oriented programming:
+==== Use of Domain Objects in Actions
 
+Domain objects can be used naturally in action methods, combining LLM interactions with traditional object-oriented programming.
+The availability of the domain object instances also drives Embabel planning.
+
+[tabs]
+====
+Java::
++
 [source,java]
 ----
 @Action
 public Recommendation generateRecommendation(Customer customer, OperationContext context) {
-    // LLM has access to customer.getLoyaltyDiscount() and customer.isPremiumEligible()
-    // as tools, plus the customer object structure
-
-    String prompt = String.format(
+    var prompt = String.format(
         "Generate a personalized recommendation for %s based on their profile",
         customer.getName()
     );
 
     return context.ai()
+        .withToolObject(customer) // <1>
         .withDefaultLlm()
         .createObject(prompt, Recommendation.class);
 }
 ----
 
+Kotlin::
++
+[source,kotlin]
+----
+@Action
+fun generateRecommendation(customer: Customer, context: OperationContext): Recommendation {
+    val prompt = "Generate a personalized recommendation for ${customer.name} based on their profile"
+
+    return context.ai()
+        .withToolObject(customer) // <1>
+        .withDefaultLlm()
+        .createObject(prompt, Recommendation::class.java)
+}
+----
+====
+
+<1> The `Customer` domain object is provided as a tool object, allowing the LLM to call its  `@Tool` methods.
+The LLM has access to `customer.getLoyaltyDiscount()` and `customer.isPremiumEligible()`.
+
+NOTE: Domain object methods, even if annotated, will not be exposed to LLMs unless explicitly added via `withToolObject()`.
+
 ==== Domain Understanding is Critical
 
-As outlined in Rod Johnson's blog introducing DICE (Domain-Integrated Context Engineering) in https://medium.com/@springrod/context-engineering-needs-domain-understanding-b4387e8e4bf8[Context Engineering Needs Domain Understanding], domain understanding is fundamental to effective context engineering.
+As outlined in https://medium.com/@springrod/context-engineering-needs-domain-understanding-b4387e8e4bf8[Context Engineering Needs Domain Understanding], Rod Johnson's blog introducing DICE (Domain-Integrated Context Engineering), domain understanding is fundamental to effective context engineering.
 Domain objects serve as the bridge between:
 
 - **Business Domain**: Real-world entities and their relationships

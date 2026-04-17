@@ -229,7 +229,10 @@ record SupportAgent(CustomerRepository customerRepository) {
 
 ==== Migrating from LangGraph
 
-tbd
+LangGraph builds agent workflows using a state machine.
+
+See the blog https://medium.com/@springrod/build-better-agents-in-java-vs-python-embabel-vs-langgraph-f7951a0d855c[Build Better Agents in Java vs Python: Embabel vs LangGraph]
+for a detailed comparison of common patterns between LangGraph and Embabel.
 
 ==== Migrating from Google ADK
 

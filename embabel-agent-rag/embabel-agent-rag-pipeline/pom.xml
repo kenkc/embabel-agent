@@ -4,19 +4,26 @@
     <parent>
         <groupId>com.embabel.agent</groupId>
         <artifactId>embabel-agent-rag</artifactId>
-        <version>0.1.4-SNAPSHOT</version>
+        <version>0.4.0-SNAPSHOT</version>
     </parent>
     <artifactId>embabel-agent-rag-pipeline</artifactId>
     <packaging>jar</packaging>
     <name>Embabel Agent Rag Pipeline</name>
     <description>Embabel Agent RAG Pipeline processing and orchestration</description>
+    <url>https://github.com/embabel/embabel-agent</url>
+
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
 
     <dependencies>
-        <!-- Embabel Agent API for RAG classes -->
+        <!-- Embabel RAG Framework -->
         <dependency>
             <groupId>com.embabel.agent</groupId>
-            <artifactId>embabel-agent-api</artifactId>
-            <version>${project.version}</version>
+            <artifactId>embabel-agent-rag-core</artifactId>
         </dependency>
         
         <!-- Spring Framework for dependency injection and configuration -->
@@ -38,6 +45,11 @@
         </dependency>
         
         <!-- Test dependencies - versions managed by parent -->
+        <dependency>
+            <groupId>com.embabel.agent</groupId>
+            <artifactId>embabel-agent-test-common</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

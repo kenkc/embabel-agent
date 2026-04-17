@@ -4,24 +4,43 @@
     <parent>
         <groupId>com.embabel.agent</groupId>
         <artifactId>embabel-agent-parent</artifactId>
-        <version>0.1.4-SNAPSHOT</version>
+        <version>0.4.0-SNAPSHOT</version>
     </parent>
     <artifactId>embabel-agent-starters</artifactId>
     <packaging>pom</packaging>
     <name>Embabel Agent Starters</name>
     <description>Embabel Agent Starters</description>
+    <url>https://github.com/embabel/embabel-agent</url>
+
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
     
     <modules>
         <module>embabel-agent-starter</module>
         <module>embabel-agent-starter-platform</module>
         <module>embabel-agent-starter-shell</module>
+        <module>embabel-agent-starter-observability</module>
         <module>embabel-agent-starter-mcpserver</module>
+        <module>embabel-agent-starter-mcpserver-security</module>
         <module>embabel-agent-starter-bedrock</module>
         <module>embabel-agent-starter-openai</module>
+        <module>embabel-agent-starter-openai-custom</module>
         <module>embabel-agent-starter-anthropic</module>
         <module>embabel-agent-starter-ollama</module>
+        <module>embabel-agent-starter-lmstudio</module>
         <module>embabel-agent-starter-dockermodels</module>
         <module>embabel-agent-starter-deepseek</module>
+        <module>embabel-agent-starter-gemini</module>
+        <module>embabel-agent-starter-google-genai</module>
+        <module>embabel-agent-starter-minimax</module>
+        <module>embabel-agent-starter-mistral-ai</module>
+        <module>embabel-agent-starter-a2a</module>
+        <module>embabel-agent-starter-webmvc</module>
+        <module>embabel-agent-starter-onnx</module>
     </modules>
 
 </project>

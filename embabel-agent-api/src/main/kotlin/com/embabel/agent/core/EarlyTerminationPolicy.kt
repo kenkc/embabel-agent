@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,20 @@
  */
 package com.embabel.agent.core
 
+import com.embabel.agent.api.event.AbstractAgentProcessEvent
 import com.embabel.agent.core.EarlyTerminationPolicy.Companion.maxActions
-import com.embabel.agent.event.AbstractAgentProcessEvent
 
 /**
  * Event triggered when an agent process is terminated early by a policy.
  *
  * @param agentProcess The agent process that is being terminated
+ * @param error Whether the termination is considered an error
  * @param reason A human-readable explanation of why the process is being terminated
  * @param policy The policy that triggered the termination
  */
 class EarlyTermination(
     agentProcess: AgentProcess,
+    val error: Boolean,
     val reason: String,
     val policy: EarlyTerminationPolicy,
 ) : AbstractAgentProcessEvent(agentProcess) {
@@ -60,6 +62,14 @@ interface EarlyTerminationPolicy {
     fun shouldTerminate(agentProcess: AgentProcess): EarlyTermination?
 
     companion object {
+
+        /**
+         * Policy that terminates the process if it becomes stuck.
+         * This can be useful with utility planning,
+         * when we might want an AgentProcess to terminate without error if it cannot make progress.
+         */
+        @JvmStatic
+        val ON_STUCK: EarlyTerminationPolicy = OnStuckEarlyTerminationPolicy
 
         /**
          * Creates a policy that terminates the process after a maximum number of actions.
@@ -100,12 +110,30 @@ interface EarlyTerminationPolicy {
     }
 }
 
+private object OnStuckEarlyTerminationPolicy : EarlyTerminationPolicy {
+    override fun shouldTerminate(agentProcess: AgentProcess): EarlyTermination? =
+        if (agentProcess.status == AgentProcessStatusCode.STUCK) {
+            EarlyTermination(
+                agentProcess = agentProcess,
+                error = false,
+                reason = "Agent process is stuck",
+                policy = this,
+            )
+        } else null
+
+}
+
 private data class MaxActionsEarlyTerminationPolicy(
     private val maxActions: Int,
 ) : EarlyTerminationPolicy {
     override fun shouldTerminate(agentProcess: AgentProcess): EarlyTermination? =
         if (agentProcess.history.size >= maxActions) {
-            EarlyTermination(agentProcess, "Max actions of $maxActions reached", this)
+            EarlyTermination(
+                agentProcess = agentProcess,
+                error = true,
+                reason = "Max actions of $maxActions reached",
+                policy = this,
+            )
         } else null
 
 }
@@ -114,8 +142,13 @@ private data class MaxTokensEarlyTerminationPolicy(
     private val maxTokens: Int,
 ) : EarlyTerminationPolicy {
     override fun shouldTerminate(agentProcess: AgentProcess): EarlyTermination? =
-        if (agentProcess.usage().totalTokens >= maxTokens) {
-            EarlyTermination(agentProcess, "Max tokens of $maxTokens reached", this)
+        if ((agentProcess.usage().totalTokens ?: 0) >= maxTokens) {
+            EarlyTermination(
+                agentProcess = agentProcess,
+                error = true,
+                reason = "Max tokens of $maxTokens reached",
+                policy = this,
+            )
         } else null
 
 }
@@ -126,9 +159,10 @@ private data class MaxCostEarlyTerminationPolicy(
     override fun shouldTerminate(agentProcess: AgentProcess): EarlyTermination? =
         if (agentProcess.cost() >= budget) {
             EarlyTermination(
-                agentProcess,
-                "Exceeded budget of $${"%.4f".format(budget)}: cost=$${"%.4f".format(agentProcess.cost())}",
-                this
+                agentProcess = agentProcess,
+                error = true,
+                reason = "Exceeded budget of $${"%.4f".format(budget)}: cost=$${"%.4f".format(agentProcess.cost())}",
+                policy = this,
             )
         } else null
 

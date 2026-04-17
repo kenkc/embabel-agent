@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import com.embabel.agent.api.dsl.*
 import com.embabel.agent.core.Export
 import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.domain.io.UserInput
-import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentPlatform
+import com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentPlatform
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 

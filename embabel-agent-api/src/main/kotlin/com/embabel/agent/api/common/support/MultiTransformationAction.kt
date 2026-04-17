@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,25 +15,32 @@
  */
 package com.embabel.agent.api.common.support
 
+import com.embabel.agent.api.annotation.support.isStateType
 import com.embabel.agent.api.common.SomeOf
 import com.embabel.agent.api.common.Transformation
 import com.embabel.agent.api.common.TransformationActionContext
+import com.embabel.agent.api.event.StateTransitionEvent
 import com.embabel.agent.core.*
 import com.embabel.agent.core.support.AbstractAction
-import com.embabel.common.core.types.ZeroToOne
+import com.embabel.plan.CostComputation
 
 /**
  * Transformer that can take multiple inputs.
  * The block takes a List<Any>.
+ * Used from within ActionMethodManager to support methods with multiple parameters.
+ * Handles @State returns from @Action types
+ * @param clearBlackboard if true, clears the blackboard on completion before binding the output
  */
 class MultiTransformationAction<O : Any>(
     name: String,
     description: String = name,
     pre: List<String> = emptyList(),
     post: List<String> = emptyList(),
-    cost: ZeroToOne = 0.0,
-    value: ZeroToOne = 0.0,
+    cost: CostComputation = { 0.0 },
+    value: CostComputation = { 0.0 },
     canRerun: Boolean = false,
+    readOnly: Boolean = false,
+    clearBlackboard: Boolean = false,
     qos: ActionQos = ActionQos(),
     inputs: Set<IoBinding>,
     private val inputClasses: List<Class<*>>,
@@ -53,18 +60,19 @@ class MultiTransformationAction<O : Any>(
     outputs = calculateOutputs(outputVarName, outputClass),
     toolGroups = toolGroups,
     canRerun = canRerun,
+    readOnly = readOnly,
+    clearBlackboard = clearBlackboard,
     qos = qos,
 ) {
 
-    override val domainTypes: Collection<DomainType>
+    override val domainTypes: Collection<JvmType>
         get() = JvmType.fromClasses(inputClasses + outputClass)
 
-    @Suppress("UNCHECKED_CAST")
     override fun execute(
         processContext: ProcessContext,
     ): ActionStatus = ActionRunner.execute(processContext) {
         val inputValues: List<Any> = inputs.map {
-            processContext.getValue(variable = it.name, type = it.type)
+            processContext.agentProcess.getValue(variable = it.name, type = it.type)
                 ?: throw IllegalArgumentException("Input ${it.name} of type ${it.type} not found in process context")
         }
         logger.debug("Resolved action {} inputs {}", name, inputValues)
@@ -77,8 +85,49 @@ class MultiTransformationAction<O : Any>(
                 action = this,
             )
         )
+
         if (output != null) {
-            bindOutput(processContext, output)
+            if (clearBlackboard) {
+                // Clear blackboard if requested
+                // This facilitates looping and also increases efficiency
+                logger.info(
+                    "Action {} returned class {}: clearing blackboard and binding only the output instance",
+                    name,
+                    output::class.java.name,
+                )
+                processContext.blackboard.clear()
+            }
+
+            if (isStateType(output.javaClass)) {
+                // Hide any existing state objects to ensure only the current state's actions are available
+                // This provides state scoping without clearing the entire blackboard
+                val existingStates = processContext.blackboard.objects
+                    .filter { it !== output && isStateType(it.javaClass) }
+
+                val previousState = existingStates.lastOrNull()
+
+                existingStates.forEach { existingState ->
+                    processContext.blackboard.hide(existingState)
+                }
+
+                processContext.onProcessEvent(
+                    StateTransitionEvent(
+                        agentProcess = processContext.agentProcess,
+                        newState = output,
+                        previousState = previousState,
+                    )
+                )
+            }
+
+            if (!(output is Unit || output::class.java == Void::class.java)) {
+                bindOutput(processContext, output)
+            } else {
+                // Add sentinel for void/Unit returns to invalidate any @Trigger precondition
+                processContext.agentProcess += ActionVoidResult
+            }
+        } else {
+            // Add sentinel for null returns to invalidate any @Trigger precondition
+            processContext.agentProcess += ActionVoidResult
         }
     }
 

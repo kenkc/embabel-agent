@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,15 @@ package com.embabel.agent.core
 import kotlin.reflect.KClass
 
 /**
+ * Sentinel object added to the blackboard when an action completes
+ * without producing a result (null, Unit, or Void return).
+ * This invalidates any @Trigger precondition that was satisfied before the action ran.
+ */
+object ActionVoidResult {
+    override fun toString(): String = "ActionVoidResult"
+}
+
+/**
  * Binding definition of form name:Type
  * If name is omitted, it is assumed to be 'it'
  * Used to build preconditions from input and output bindings.
@@ -31,7 +40,10 @@ value class IoBinding(val value: String) {
         require(value.isNotBlank()) { "Type definition must not be blank" }
     }
 
-    constructor(name: String, type: String) : this("$name:$type")
+    constructor(
+        name: String,
+        type: String,
+    ) : this("$name:$type")
 
     val type: String
         get() = if (value.contains(":")) {
@@ -48,6 +60,19 @@ value class IoBinding(val value: String) {
                 DEFAULT_BINDING
             }
 
+    /**
+     * Resolve the JVM type for this binding, if possible.
+     * Dynamic types won't be resolved, and calling code must handle nulls.
+     */
+    fun resolveJvmType(): JvmType? {
+        return try {
+            val clazz = Class.forName(type)
+            return JvmType(clazz)
+        } catch (_: ClassNotFoundException) {
+            null
+        }
+    }
+
     companion object {
         /**
          * The default binding, when it is not otherwise specified.
@@ -55,11 +80,23 @@ value class IoBinding(val value: String) {
          */
         const val DEFAULT_BINDING = "it"
 
-        operator fun invoke(name: String? = DEFAULT_BINDING, type: Class<*>): IoBinding {
+        /**
+         * Binding name for the last result on the blackboard.
+         * Used in @Trigger preconditions to check the type of the most recent result.
+         */
+        const val LAST_RESULT_BINDING = "lastResult"
+
+        operator fun invoke(
+            name: String? = DEFAULT_BINDING,
+            type: Class<*>,
+        ): IoBinding {
             return IoBinding(value = "$name:${type.name}")
         }
 
-        operator fun invoke(name: String? = DEFAULT_BINDING, type: KClass<*>) = invoke(name = name, type = type.java)
+        operator fun invoke(
+            name: String? = DEFAULT_BINDING,
+            type: KClass<*>,
+        ) = invoke(name = name, type = type.java)
 
     }
 

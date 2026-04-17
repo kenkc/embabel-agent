@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,32 +16,28 @@
 package com.embabel.agent.api.common.workflow
 
 import com.embabel.agent.api.common.ActionContext
-import com.embabel.agent.api.dsl.AgentScopeBuilder
-import com.embabel.agent.common.Constants
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
 import com.embabel.agent.core.Agent
 import com.embabel.agent.core.IoBinding
+import com.embabel.agent.spi.common.Constants
 
 /**
  * Ensure consistent naming convention for workflow builders that return a given result type.
  */
-interface WorkFlowBuilderReturning {
+interface WorkflowBuilderReturning {
 
     fun <RESULT : Any> returning(resultClass: Class<RESULT>): Any
-}
-
-interface WorkFlowBuilderWithInput {
-
-    /**
-     * Specify an input class for this workflow agent.
-     */
-    fun withInput(inputClass: Class<out Any>): Any
 }
 
 /**
  * Ensure consistent naming convention for workflow builders that consume a given input type.
  */
-interface WorkFlowBuilderConsuming {
+interface WorkflowBuilderConsuming {
 
+    /**
+     * Specify the input type for this workflow.
+     * Return a builder
+     */
     fun <INPUT : Any> consuming(inputClass: Class<INPUT>): Any
 }
 
@@ -51,10 +47,10 @@ interface WorkFlowBuilderConsuming {
  */
 abstract class WorkflowBuilder<RESULT : Any>(
     private val resultClass: Class<RESULT>,
-    private val inputClasses: List<Class<out Any>>,
+    private val inputClass: Class<out Any>?,
 ) {
 
-    abstract fun build(): AgentScopeBuilder<RESULT>
+    abstract fun build(): TypedAgentScopeBuilder<RESULT>
 
     /**
      * Build an agent on this RepeatUntil workflow.
@@ -66,7 +62,7 @@ abstract class WorkflowBuilder<RESULT : Any>(
         description: String,
     ): Agent {
         return build()
-            .build()
+            .createAgentScope()
             .createAgent(
                 name = name,
                 provider = Constants.EMBABEL_PROVIDER,
@@ -81,7 +77,7 @@ abstract class WorkflowBuilder<RESULT : Any>(
     fun asSubProcess(
         context: ActionContext,
     ): RESULT {
-        val preconditions = inputClasses.map { IoBinding(type = it) }.map { it.value }
+        val preconditions = listOfNotNull(inputClass).map { IoBinding(type = it) }.map { it.value }
         val illegals = preconditions.filter { context.action?.preconditions?.contains(it) != true }
         if (illegals.isNotEmpty()) {
             error(

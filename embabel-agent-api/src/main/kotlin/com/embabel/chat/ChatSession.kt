@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,21 @@
  */
 package com.embabel.chat
 
-import com.embabel.agent.channel.MessageOutputChannelEvent
-import com.embabel.agent.channel.OutputChannel
-import com.embabel.agent.identity.User
+import com.embabel.agent.api.channel.MessageOutputChannelEvent
+import com.embabel.agent.api.channel.OutputChannel
+import com.embabel.agent.api.identity.User
 
 /**
  * Simplest possible conversation session implementation
  * Responsible for keeping its conversation up to date
+ * via Conversation.addMessage(),
+ * and for sending messages to the OutputChannel.
  */
 interface ChatSession {
 
+    /**
+     * OutputChannel to send messages to.
+     */
     val outputChannel: OutputChannel
 
     /**
@@ -54,22 +59,30 @@ interface ChatSession {
     )
 
     /**
+     * Handle a system-initiated chat trigger.
+     * The trigger prompt is sent to the LLM but not stored in the conversation.
+     * Only the chatbot's response is stored and sent to the output channel.
+     *
+     * @param trigger the chat trigger to process
+     */
+    fun onTrigger(trigger: ChatTrigger)
+
+    /**
      * Is the conversation finished?
      */
     fun isFinished(): Boolean = false
 
     /**
      * Convenience method to add a message to the conversation
+     * and send it to the output channel.
+     * Preserves all message properties including awaitable and assets.
      */
     fun saveAndSend(message: AssistantMessage) {
         conversation.addMessage(message)
         outputChannel.send(
             MessageOutputChannelEvent(
                 processId = processId ?: "anonymous",
-                AssistantMessage(
-                    content = message.content,
-                    name = null,
-                ),
+                message = message,
             )
         )
     }

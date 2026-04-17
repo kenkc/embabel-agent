@@ -1,0 +1,86 @@
+/*
+ * Copyright 2024-2026 Embabel Pty Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.embabel.agent.api.common.nested.support
+
+import com.embabel.agent.api.common.CreationExample
+import com.embabel.agent.api.common.PromptRunner
+import com.embabel.chat.Message
+import com.embabel.common.ai.prompt.PromptContributor
+import com.fasterxml.jackson.databind.ObjectMapper
+import java.lang.reflect.Field
+import java.util.function.Predicate
+
+internal data class PromptRunnerCreating<T>(
+    internal val promptRunner: PromptRunner,
+    internal val outputClass: Class<T>,
+    private val objectMapper: ObjectMapper,
+) : PromptRunner.Creating<T> {
+
+    override fun withExample(
+        example: CreationExample<T>,
+    ): PromptRunner.Creating<T> {
+        return copy(
+            promptRunner = promptRunner
+                .withGenerateExamples(false)
+                .withPromptContributor(
+                    PromptContributor.Companion.fixed(
+                        """
+                        Example: ${example.description}
+                        ${objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(example.value)}
+                        """.trimIndent()
+                    )
+                )
+        )
+    }
+
+    override fun withFieldFilter(
+        filter: Predicate<Field>,
+    ): PromptRunner.Creating<T> =
+        TODO("Cannot be implemented")
+
+    override fun withPropertyFilter(
+        filter: Predicate<String>
+    ): PromptRunner.Creating<T> {
+        return copy(
+            promptRunner = promptRunner
+                .withPropertyFilter(filter)
+        )
+    }
+
+    override fun withValidation(
+        validation: Boolean
+    ): PromptRunner.Creating<T> {
+        return copy(
+            promptRunner = promptRunner.withValidation(validation)
+        )
+    }
+
+    override fun fromMessages(
+        messages: List<Message>,
+    ): T {
+        return promptRunner.createObject(
+            messages = messages,
+            outputClass = outputClass,
+        )
+    }
+
+    override fun fromTemplate(
+        templateName: String,
+        model: Map<String, Any>,
+    ): T = promptRunner
+        .rendering(templateName)
+        .createObject(outputClass = outputClass, model = model)
+}

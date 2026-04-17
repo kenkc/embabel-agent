@@ -4,18 +4,31 @@
     <parent>
         <groupId>com.embabel.agent</groupId>
         <artifactId>embabel-agent-autoconfigure</artifactId>
-        <version>0.1.4-SNAPSHOT</version>
+        <version>0.4.0-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
     <artifactId>embabel-agent-dockermodels-autoconfigure</artifactId>
     <packaging>jar</packaging>
     <name>Embabel Agent Autoconfiguration Models Docker</name>
     <description>Docker Local Models for Embabel Agent API</description>
+    <url>https://github.com/embabel/embabel-agent</url>
+
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
 
     <dependencies>
         <dependency>
             <groupId>com.embabel.agent</groupId>
             <artifactId>embabel-agent-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.embabel.agent</groupId>
+            <artifactId>embabel-agent-openai</artifactId>
         </dependency>
 
         <dependency>

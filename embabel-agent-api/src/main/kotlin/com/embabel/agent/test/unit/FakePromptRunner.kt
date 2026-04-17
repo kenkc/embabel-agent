@@ -1,0 +1,468 @@
+/*
+ * Copyright 2024-2026 Embabel Pty Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.embabel.agent.test.unit
+
+import com.embabel.agent.api.common.*
+import com.embabel.agent.api.common.support.DelegatingCreating
+import com.embabel.agent.api.common.support.DelegatingRendering
+import com.embabel.agent.api.common.support.PromptExecutionDelegate
+import com.embabel.agent.api.tool.Tool
+import com.embabel.agent.api.tool.ToolCallContext
+import com.embabel.agent.api.tool.ToolObject
+import com.embabel.agent.api.tool.agentic.DomainToolPredicate
+import com.embabel.agent.api.tool.agentic.DomainToolSource
+import com.embabel.agent.api.tool.callback.ToolLoopInspector
+import com.embabel.agent.api.tool.callback.ToolLoopTransformer
+import com.embabel.agent.api.validation.guardrails.GuardRail
+import com.embabel.agent.core.ToolGroup
+import com.embabel.agent.core.ToolGroupRequirement
+import com.embabel.agent.core.internal.LlmOperations
+import com.embabel.agent.core.support.LlmInteraction
+import com.embabel.agent.core.support.safelyGetTools
+import com.embabel.agent.spi.loop.ToolInjectionStrategy
+import com.embabel.agent.spi.loop.ToolNotFoundPolicy
+import com.embabel.chat.AssistantMessage
+import com.embabel.chat.Message
+import com.embabel.chat.UserMessage
+import com.embabel.common.ai.model.LlmOptions
+import com.embabel.common.ai.prompt.PromptContributor
+import com.embabel.common.core.MobyNameGenerator
+import com.embabel.common.core.streaming.StreamingEvent
+import com.embabel.common.core.thinking.ThinkingResponse
+import com.embabel.common.core.types.ZeroToOne
+import java.lang.reflect.Field
+import java.util.function.Predicate
+import org.slf4j.LoggerFactory
+import reactor.core.publisher.Flux
+
+enum class Method {
+    CREATE_OBJECT,
+    CREATE_OBJECT_IF_POSSIBLE,
+    EVALUATE_CONDITION,
+}
+
+data class LlmInvocation(
+    val interaction: LlmInteraction,
+    val messages: List<Message>,
+    val method: Method,
+) {
+    /**
+     * The prompt text (content of all messages concatenated).
+     * Convenience property for testing assertions.
+     *
+     * Note: Use this property (or getPrompt() in Java) to get the full prompt content.
+     * The default toString() of Message objects truncates content for readability.
+     */
+    val prompt: String
+        get() = messages.joinToString("\n") { it.content }
+
+    override fun toString(): String {
+        return "LlmInvocation(id=${interaction.id}, method=$method, messageCount=${messages.size})"
+    }
+}
+
+data class FakePromptRunner(
+    override val llm: LlmOptions?,
+    override val messages: List<Message> = emptyList(),
+    override val images: List<AgentImage> = emptyList(),
+    override val toolGroups: Set<ToolGroupRequirement>,
+    override val toolObjects: List<ToolObject>,
+    override val promptContributors: List<PromptContributor>,
+    private val contextualPromptContributors: List<ContextualPromptElement>,
+    override val generateExamples: Boolean?,
+    override val fieldFilter: Predicate<Field> = Predicate { true },
+    override val validation: Boolean = true,
+    private val context: OperationContext,
+    private val _llmInvocations: MutableList<LlmInvocation> = mutableListOf(),
+    private val responses: MutableList<Any?> = mutableListOf(),
+    private val otherTools: List<Tool> = emptyList(),
+    /**
+     * The interaction ID set via withInteractionId() or withId().
+     * Can be inspected in tests to verify the correct ID was set.
+     */
+    val interactionId: InteractionId? = null,
+    private val guardRails: List<GuardRail> = emptyList(),
+    private val toolCallContext: ToolCallContext = ToolCallContext.EMPTY,
+) : PromptRunner {
+
+    private val logger = LoggerFactory.getLogger(FakePromptRunner::class.java)
+
+    init {
+        logger.info("Fake prompt runner created: ${hashCode()}")
+    }
+
+    /**
+     * Internal adapter that implements PromptExecutionDelegate for use with delegating implementations.
+     */
+    private inner class DelegateAdapter : PromptExecutionDelegate {
+        override val llmOperations: LlmOperations
+            get() = context.agentPlatform().platformServices.llmOperations
+
+        override val templateRenderer: com.embabel.common.textio.template.TemplateRenderer
+            get() = context.agentPlatform().platformServices.templateRenderer
+
+        override val objectMapper: com.fasterxml.jackson.databind.ObjectMapper
+            get() = context.agentPlatform().platformServices.objectMapper
+
+        override val llm: LlmOptions?
+            get() = this@FakePromptRunner.llm
+
+        override val messages: List<Message>
+            get() = this@FakePromptRunner.messages
+
+        override val images: List<AgentImage>
+            get() = this@FakePromptRunner.images
+
+        override val toolGroups: Set<ToolGroupRequirement>
+            get() = this@FakePromptRunner.toolGroups
+
+        override val toolObjects: List<ToolObject>
+            get() = this@FakePromptRunner.toolObjects
+
+        override val promptContributors: List<PromptContributor>
+            get() = this@FakePromptRunner.promptContributors
+
+        override val generateExamples: Boolean?
+            get() = this@FakePromptRunner.generateExamples
+
+        override val fieldFilter: Predicate<Field>
+            get() = this@FakePromptRunner.fieldFilter
+
+        override val validation: Boolean
+            get() = this@FakePromptRunner.validation
+
+        override fun withInteractionId(interactionId: InteractionId): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(interactionId = interactionId).DelegateAdapter()
+        }
+
+        override fun withLlm(llm: LlmOptions): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(llm = llm).DelegateAdapter()
+        }
+
+        override fun withMessages(messages: List<Message>): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(messages = this@FakePromptRunner.messages + messages).DelegateAdapter()
+        }
+
+        override fun withImages(images: List<AgentImage>): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(images = this@FakePromptRunner.images + images).DelegateAdapter()
+        }
+
+        override fun withToolGroup(toolGroup: ToolGroupRequirement): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(toolGroups = this@FakePromptRunner.toolGroups + toolGroup)
+                .DelegateAdapter()
+        }
+
+        override fun withToolGroup(toolGroup: ToolGroup): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(otherTools = this@FakePromptRunner.otherTools + toolGroup.tools)
+                .DelegateAdapter()
+        }
+
+        override fun withToolObject(toolObject: ToolObject): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(toolObjects = this@FakePromptRunner.toolObjects + toolObject)
+                .DelegateAdapter()
+        }
+
+        override fun withTool(tool: Tool): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(otherTools = this@FakePromptRunner.otherTools + tool).DelegateAdapter()
+        }
+
+        override fun withPromptContributors(promptContributors: List<PromptContributor>): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(
+                promptContributors = this@FakePromptRunner.promptContributors + promptContributors
+            ).DelegateAdapter()
+        }
+
+        override fun withContextualPromptContributors(
+            contextualPromptContributors: List<ContextualPromptElement>,
+        ): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(
+                contextualPromptContributors = this@FakePromptRunner.contextualPromptContributors + contextualPromptContributors
+            ).DelegateAdapter()
+        }
+
+        override fun withGenerateExamples(generateExamples: Boolean): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(generateExamples = generateExamples).DelegateAdapter()
+        }
+
+        override fun withFieldFilter(filter: Predicate<Field>): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(fieldFilter = this@FakePromptRunner.fieldFilter.and(filter))
+                .DelegateAdapter()
+        }
+
+        override fun withValidation(validation: Boolean): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(validation = validation).DelegateAdapter()
+        }
+
+        override fun withGuardRails(vararg guards: GuardRail): PromptExecutionDelegate {
+            return this@FakePromptRunner.copy(guardRails = this@FakePromptRunner.guardRails + guards).DelegateAdapter()
+        }
+
+        override fun withToolLoopInspectors(vararg inspectors: ToolLoopInspector): PromptExecutionDelegate = this
+
+        override fun withToolLoopTransformers(vararg transformers: ToolLoopTransformer): PromptExecutionDelegate = this
+
+        override fun withToolCallContext(context: ToolCallContext): PromptExecutionDelegate =
+            this@FakePromptRunner.copy(
+                toolCallContext = this@FakePromptRunner.toolCallContext.merge(context)
+            ).DelegateAdapter()
+
+        override fun withToolNotFoundPolicy(policy: ToolNotFoundPolicy): PromptExecutionDelegate = this
+
+        override val domainToolSources: List<DomainToolSource<*>>
+            get() = emptyList()
+
+        override val autoDiscovery: Boolean
+            get() = false
+
+        override val injectionStrategies: List<ToolInjectionStrategy>
+            get() = emptyList()
+
+        override fun withInjectionStrategies(strategies: List<ToolInjectionStrategy>): PromptExecutionDelegate = this
+
+        override fun <T : Any> withToolChainingFrom(
+            type: Class<T>,
+            predicate: DomainToolPredicate<T>,
+        ): PromptExecutionDelegate = this
+
+        override fun withToolChainingFromAny(): PromptExecutionDelegate = this
+
+        override fun <T> createObject(messages: List<Message>, outputClass: Class<T>): T {
+            return this@FakePromptRunner.createObject(messages, outputClass)
+        }
+
+        override fun <T> createObjectIfPossible(messages: List<Message>, outputClass: Class<T>): T? {
+            return this@FakePromptRunner.createObjectIfPossible(messages, outputClass)
+        }
+
+        override fun supportsStreaming(): Boolean = false
+
+        override fun generateStream(): Flux<String> {
+            TODO("Not yet implemented")
+        }
+
+        override fun <T> createObjectStream(itemClass: Class<T>): Flux<T> {
+            TODO("Not yet implemented")
+        }
+
+        override fun <T> createObjectStreamWithThinking(itemClass: Class<T>): Flux<StreamingEvent<T>> {
+            TODO("Not yet implemented")
+        }
+
+        override fun supportsThinking(): Boolean = false
+        override fun <T> createObjectIfPossibleWithThinking(
+            messages: List<Message>,
+            outputClass: Class<T>,
+        ): ThinkingResponse<T?> {
+            TODO("Not yet implemented")
+        }
+
+        override fun <T> createObjectWithThinking(
+            messages: List<Message>,
+            outputClass: Class<T>,
+        ): ThinkingResponse<T> {
+            TODO("Not yet implemented")
+        }
+
+        override fun respondWithThinking(messages: List<Message>): ThinkingResponse<AssistantMessage> {
+            TODO("Not yet implemented")
+        }
+
+        override fun evaluateConditionWithThinking(
+            condition: String,
+            context: String,
+            confidenceThreshold: ZeroToOne,
+        ): ThinkingResponse<Boolean> {
+            TODO("Not yet implemented")
+        }
+    }
+
+    override fun withInteractionId(interactionId: InteractionId): PromptRunner =
+        copy(interactionId = interactionId)
+
+
+    override fun withMessages(messages: List<Message>): PromptRunner =
+        copy(messages = this.messages + messages)
+
+    override fun withImages(images: List<AgentImage>): PromptRunner =
+        copy(images = this.images + images)
+
+    /**
+     * Add a response to the list of expected responses.
+     * This is used to simulate responses from the LLM.
+     */
+    fun expectResponse(response: Any?) {
+        responses.add(response)
+        logger.info(
+            "Expected response added: ${response?.javaClass?.name ?: "null"}"
+        )
+    }
+
+    private fun <T> getResponse(outputClass: Class<T>): T? {
+        if (responses.size < llmInvocations.size) {
+            throw IllegalStateException(
+                """
+                    Expected ${llmInvocations.size} responses, but got ${responses.size}.
+                    Make sure to call expectResponse() for each LLM invocation.
+                    """.trimIndent()
+            )
+        }
+        val maybeT = responses[llmInvocations.size - 1] ?: return null
+        if (!outputClass.isInstance(maybeT)) {
+            throw IllegalStateException(
+                "Expected response of type ${outputClass.name}, but got ${maybeT.javaClass.name}."
+            )
+        }
+        return maybeT as T
+    }
+
+    /**
+     * The LLM calls that were made
+     */
+    val llmInvocations: List<LlmInvocation>
+        get() = _llmInvocations
+
+    override fun <T> createObject(
+        prompt: String,
+        outputClass: Class<T>,
+    ): T {
+        _llmInvocations += LlmInvocation(
+            interaction = createLlmInteraction(),
+            messages = listOf(UserMessage(prompt)),
+            method = Method.CREATE_OBJECT,
+        )
+        return getResponse(outputClass)!!
+    }
+
+    override fun <T> createObjectIfPossible(
+        messages: List<Message>,
+        outputClass: Class<T>,
+    ): T? {
+        _llmInvocations += LlmInvocation(
+            interaction = createLlmInteraction(),
+            messages = messages,
+            method = Method.CREATE_OBJECT_IF_POSSIBLE,
+        )
+        return getResponse(outputClass)
+    }
+
+    override fun <T> createObject(
+        messages: List<Message>,
+        outputClass: Class<T>,
+    ): T {
+        _llmInvocations += LlmInvocation(
+            interaction = createLlmInteraction(),
+            messages = messages,
+            method = Method.CREATE_OBJECT,
+        )
+        return getResponse(outputClass)!!
+    }
+
+    override fun evaluateCondition(
+        condition: String,
+        context: String,
+        confidenceThreshold: ZeroToOne,
+    ): Boolean {
+        _llmInvocations += LlmInvocation(
+            interaction = createLlmInteraction(),
+            messages = listOf(UserMessage(condition)),
+            method = Method.EVALUATE_CONDITION,
+        )
+        return true
+    }
+
+    override fun withLlm(llm: LlmOptions): PromptRunner =
+        copy(llm = llm)
+
+    override fun withToolGroup(toolGroup: ToolGroupRequirement): PromptRunner =
+        copy(toolGroups = this.toolGroups + toolGroup)
+
+    override fun withToolObject(toolObject: ToolObject): PromptRunner =
+        copy(toolObjects = this.toolObjects + toolObject)
+
+    override fun withPromptContributors(promptContributors: List<PromptContributor>): PromptRunner =
+        copy(promptContributors = this.promptContributors + promptContributors)
+
+    override fun withContextualPromptContributors(
+        contextualPromptContributors: List<ContextualPromptElement>,
+    ): PromptRunner =
+        copy(contextualPromptContributors = this.contextualPromptContributors + contextualPromptContributors)
+
+    override fun withGenerateExamples(generateExamples: Boolean): PromptRunner =
+        copy(generateExamples = generateExamples)
+
+    @Deprecated("Use creating().withPropertyFilter() instead")
+    override fun withPropertyFilter(filter: Predicate<String>): PromptRunner =
+        copy(fieldFilter = this.fieldFilter.and { filter.test(it.name) })
+
+    @Deprecated("Use creating().withValidation() instead")
+    override fun withValidation(validation: Boolean): PromptRunner =
+        copy(validation = validation)
+
+    private fun createLlmInteraction() =
+        LlmInteraction(
+            llm = llm ?: LlmOptions(),
+            toolGroups = this.toolGroups + toolGroups,
+            tools = safelyGetTools(toolObjects) + otherTools,
+            promptContributors = promptContributors + contextualPromptContributors.map {
+                it.toPromptContributor(
+                    context
+                )
+            },
+            id = interactionId ?: InteractionId(MobyNameGenerator.generateName()),
+            generateExamples = generateExamples,
+            toolCallContext = toolCallContext,
+        )
+
+    override fun rendering(templateName: String): PromptRunner.Rendering {
+        return DelegatingRendering(
+            delegate = DelegateAdapter(),
+            templateName = templateName,
+        )
+    }
+
+    override fun withToolGroup(toolGroup: ToolGroup): PromptRunner =
+        copy(otherTools = this.otherTools + toolGroup.tools)
+
+    override fun withTool(tool: Tool): PromptRunner =
+        copy(otherTools = this.otherTools + tool)
+
+    override fun <T> creating(outputClass: Class<T>): PromptRunner.Creating<T> {
+        return DelegatingCreating(
+            delegate = DelegateAdapter(),
+            outputClass = outputClass,
+        )
+    }
+
+    override fun withGuardRails(vararg guards: GuardRail): PromptRunner {
+        return copy(guardRails = this.guardRails + guards)
+    }
+
+    override fun withToolLoopInspectors(vararg inspectors: ToolLoopInspector): PromptRunner = this
+
+    override fun withToolLoopTransformers(vararg transformers: ToolLoopTransformer): PromptRunner = this
+
+    override fun withToolCallContext(context: ToolCallContext): PromptRunner =
+        copy(toolCallContext = this.toolCallContext.merge(context))
+
+    override fun withToolNotFoundPolicy(policy: ToolNotFoundPolicy): PromptRunner = this
+
+    override fun <T : Any> withToolChainingFrom(
+        type: Class<T>,
+        predicate: DomainToolPredicate<T>,
+    ): PromptRunner = this
+
+    override fun withToolChainingFromAny(): PromptRunner = this
+}

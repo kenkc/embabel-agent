@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,21 @@ import com.embabel.agent.test.domain.*
 import com.embabel.agent.test.type.Wumpus
 import com.embabel.common.core.MobyNameGenerator
 
+/**
+ * A description used to define a goal.
+ */
+private const val DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES = "We are satisfied with generated names"
+
+/**
+ * A reason used to create a [GeneratedName].
+ */
+private const val REASON_HELPS_MAKE_MONEY = "Helps make money"
+
+/**
+ *  A name used to create a [GeneratedName].
+ */
+private const val NAME_MONEY_COM = "money.com"
+
 fun splitGarden() = agent("splitter", description = "splitter0") {
 
     transformation<UserInput, Garden> { Garden(it.input.content) }
@@ -36,7 +51,7 @@ fun splitGarden() = agent("splitter", description = "splitter0") {
 
     goal(
         name = "snakeFed",
-        description = "We are satisfied with generated names",
+        description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES,
         satisfiedBy = SnakeMeal::class,
     )
 }
@@ -47,7 +62,7 @@ fun userInputToFrogOrPersonBranch() = agent("brancher", description = "brancher0
         branch<UserInput, SpiPerson, Frog> { Branch(SpiPerson(it.input.content)) }
     }
 
-    goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = SpiPerson::class)
+    goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = SpiPerson::class)
 }
 
 fun userInputToFrogChain() = agent("uitf", description = "Evil frogly wizard") {
@@ -59,7 +74,7 @@ fun userInputToFrogChain() = agent("uitf", description = "Evil frogly wizard") {
         )
     }
 
-    goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = Frog::class)
+    goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = Frog::class)
 }
 
 fun userInputToFrogAndThenDo() = agent("uitf", description = "Evil frogly wizard") {
@@ -70,7 +85,7 @@ fun userInputToFrogAndThenDo() = agent("uitf", description = "Evil frogly wizard
         ::toSpiPerson andThenDo { Frog(it.input.name) }
     }
 
-    goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = Frog::class)
+    goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = Frog::class)
 }
 
 fun userInputToFrogAndThen() = agent("uitf", description = "Evil frogly wizard") {
@@ -81,7 +96,7 @@ fun userInputToFrogAndThen() = agent("uitf", description = "Evil frogly wizard")
         ::toSpiPerson andThen { Frog(it.name) }
     }
 
-    goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = Frog::class)
+    goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = Frog::class)
 }
 
 fun userInputToFrogAndThenAgain() = agent("uitf", description = "Evil frogly wizard") {
@@ -93,7 +108,7 @@ fun userInputToFrogAndThenAgain() = agent("uitf", description = "Evil frogly wiz
     }
 
     goal(
-        name = "namingDone", description = "We are satisfied with generated names",
+        name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES,
         satisfiedBy = Wumpus::class
     )
 }
@@ -113,8 +128,8 @@ fun simpleNamer(transformListener: () -> Unit = {}) =
                         GeneratedNames(
                             names = listOf(
                                 GeneratedName(
-                                    "money.com",
-                                    "Helps make money"
+                                    NAME_MONEY_COM,
+                                    REASON_HELPS_MAKE_MONEY
                                 )
                             )
                         )
@@ -128,7 +143,7 @@ fun simpleNamer(transformListener: () -> Unit = {}) =
             )
         }
 
-        goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = AllNames::class)
+        goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = AllNames::class)
     }
 
 
@@ -149,12 +164,12 @@ fun redoNamer() =
                                     names = listOf(
                                         GeneratedName(
                                             MobyNameGenerator.generateName(),
-                                            "Helps make money"
+                                            REASON_HELPS_MAKE_MONEY
                                         )
                                     )
                                 )
                             },
-                            { GeneratedNames(names = listOf(GeneratedName("money.com", "Helps make money"))) }),
+                            { GeneratedNames(names = listOf(GeneratedName(NAME_MONEY_COM, REASON_HELPS_MAKE_MONEY))) }),
                         merge = { generatedNamesList ->
                             AllNames(
                                 accepted = generatedNamesList.flatMap { it.names }.distinctBy { it.name },
@@ -168,7 +183,7 @@ fun redoNamer() =
                 })
         }
 
-        goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = AllNames::class)
+        goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = AllNames::class)
     }
 
 data class Thing(val t: String)
@@ -181,7 +196,7 @@ fun nestingByName() = agent("nesting test", description = "Nesting test") {
         aggregate<Thing, GeneratedNames, AllNames>(
             transforms = listOf(
                 { GeneratedNames(names = emptyList()) },
-                { GeneratedNames(names = listOf(GeneratedName("money.com", "Helps make money"))) }),
+                { GeneratedNames(names = listOf(GeneratedName(NAME_MONEY_COM, REASON_HELPS_MAKE_MONEY))) }),
             merge = { generatedNamesList, _ ->
                 AllNames(
                     accepted = generatedNamesList.flatMap { it.names }.distinctBy { it.name },
@@ -191,7 +206,7 @@ fun nestingByName() = agent("nesting test", description = "Nesting test") {
         )
     }
 
-    goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = AllNames::class)
+    goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = AllNames::class)
 }
 
 fun nestingByReference() = agent("nesting test", description = "Nesting test") {
@@ -207,7 +222,7 @@ fun nestingByReference() = agent("nesting test", description = "Nesting test") {
         aggregate<Thing, GeneratedNames, AllNames>(
             transforms = listOf(
                 { GeneratedNames(names = emptyList()) },
-                { GeneratedNames(names = listOf(GeneratedName("money.com", "Helps make money"))) }),
+                { GeneratedNames(names = listOf(GeneratedName(NAME_MONEY_COM, REASON_HELPS_MAKE_MONEY))) }),
             merge = { generatedNamesList, _ ->
                 AllNames(
                     accepted = generatedNamesList.flatMap { it.names }.distinctBy { it.name },
@@ -217,7 +232,7 @@ fun nestingByReference() = agent("nesting test", description = "Nesting test") {
         )
     }
 
-    goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = AllNames::class)
+    goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = AllNames::class)
 }
 
 fun biAggregate() = agent("biAggregate", description = "Nesting test") {
@@ -230,7 +245,7 @@ fun biAggregate() = agent("biAggregate", description = "Nesting test") {
         biAggregate<UserInput, Thing, GeneratedNames, AllNames>(
             transforms = listOf(
                 { GeneratedNames(names = emptyList()) },
-                { GeneratedNames(names = listOf(GeneratedName("money.com", "Helps make money"))) }),
+                { GeneratedNames(names = listOf(GeneratedName(NAME_MONEY_COM, REASON_HELPS_MAKE_MONEY))) }),
             merge = { generatedNamesList ->
                 AllNames(
                     accepted = generatedNamesList.flatMap { it.names }.distinctBy { it.name },
@@ -240,5 +255,5 @@ fun biAggregate() = agent("biAggregate", description = "Nesting test") {
         )
     }
 
-    goal(name = "namingDone", description = "We are satisfied with generated names", satisfiedBy = AllNames::class)
+    goal(name = "namingDone", description = DESCRIPTION_WE_ARE_SATISFIED_WITH_GENERATED_NAMES, satisfiedBy = AllNames::class)
 }

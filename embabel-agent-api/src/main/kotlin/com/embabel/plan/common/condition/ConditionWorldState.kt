@@ -1,0 +1,187 @@
+/*
+ * Copyright 2024-2026 Embabel Pty Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.embabel.plan.common.condition
+
+import com.embabel.common.util.color
+import com.embabel.common.util.indent
+import com.embabel.plan.WorldState
+import java.time.Instant
+
+private const val LUMON_MEMBRANE_COLOR = 0xbeb780
+
+/**
+ * Conditions expressed as a map from condition name to determination
+ */
+typealias ConditionState = Map<String, ConditionDetermination>
+
+/**
+ * Determine the world state: the conditions that drive GOAP planning
+ * Our conditions can have 3 values: true, false or unknown.
+ * Unknown may be genuinely unknown, or it may mean that the condition has been lazily evaluated
+ * and needs to be evaluated again.
+ */
+interface WorldStateDeterminer {
+
+    /**
+     * Determine world state. Optimization is permitted.
+     * Implementations may choose to return UNKNOWN for expensive conditions,
+     * which the planner should invoke lazily
+     */
+    fun determineWorldState(): ConditionWorldState
+
+    /**
+     * Determine an individual condition, disabling any caching.
+     * Any previously UNKNOWN condition must be re-evaluated if possible.
+     */
+    fun determineCondition(condition: String): ConditionDetermination
+
+    companion object {
+
+        fun fromMap(
+            map: Map<String, ConditionDetermination> = emptyMap(),
+        ): WorldStateDeterminer =
+            FromMapWorldStateDeterminer(map)
+
+    }
+
+}
+
+private class FromMapWorldStateDeterminer(
+    private val map: Map<String, ConditionDetermination>,
+) : WorldStateDeterminer {
+
+    override fun determineWorldState(): ConditionWorldState = ConditionWorldState(map)
+
+    override fun determineCondition(condition: String): ConditionDetermination {
+        return map[condition] ?: ConditionDetermination.UNKNOWN
+    }
+}
+
+/**
+ * Represents the state of the world at any time.
+ * World state is just a map. This class exposes operations on the state.
+ */
+interface ConditionWorldState : WorldState {
+
+    val state: ConditionState
+
+    /**
+     * Apply an action to a state, returning the resulting new state.
+     */
+    operator fun plus(action: ConditionAction): ConditionWorldState
+
+    /**
+     * Add a single condition determination
+     */
+    operator fun plus(pair: Pair<String, ConditionDetermination>): ConditionWorldState
+
+    fun unknownConditions(): Collection<String>
+
+    /**
+     * Generate variants with different definite values for the given condition
+     */
+    fun variants(unknownCondition: String): Collection<ConditionWorldState>
+
+    /**
+     * Generate all possible changes to the world state where only one condition is changed
+     */
+    fun withOneChange(): Collection<ConditionWorldState>
+
+    /**
+     * Are all preconditions satisfied in this world state?
+     */
+    infix fun satisfiesPreconditions(preconditions: EffectSpec): Boolean
+
+    companion object {
+
+        operator fun invoke(
+            state: ConditionState = emptyMap(),
+        ): ConditionWorldState =
+            ConditionWorldStateImpl(state)
+    }
+}
+
+
+private data class ConditionWorldStateImpl(
+    override val state: ConditionState = emptyMap(),
+) : ConditionWorldState {
+
+    override val timestamp: Instant = Instant.now()
+
+    override operator fun plus(action: ConditionAction): ConditionWorldState {
+        val newState = state.toMutableMap()
+        action.effects.forEach { (key, value) ->
+            newState[key] = value
+        }
+        return ConditionWorldState(newState as HashMap<String, ConditionDetermination>)
+    }
+
+    override operator fun plus(pair: Pair<String, ConditionDetermination>): ConditionWorldState =
+        ConditionWorldState(this.state + pair)
+
+    override fun unknownConditions(): Collection<String> =
+        state.entries
+            .filter { it.value == ConditionDetermination.UNKNOWN }
+            .map { it.key }
+
+    override fun variants(unknownCondition: String): Collection<ConditionWorldState> {
+        return setOf(ConditionDetermination.TRUE, ConditionDetermination.FALSE).map {
+            this + (unknownCondition to it)
+        }
+    }
+
+    override fun withOneChange(): Collection<ConditionWorldState> {
+        val result = mutableListOf<ConditionWorldState>()
+
+        for ((condition, currentValue) in state) {
+            when (currentValue) {
+                ConditionDetermination.TRUE -> {
+                    result.add(ConditionWorldState(state + (condition to ConditionDetermination.FALSE)))
+                    result.add(ConditionWorldState(state + (condition to ConditionDetermination.UNKNOWN)))
+                }
+
+                ConditionDetermination.FALSE -> {
+                    result.add(ConditionWorldState(state + (condition to ConditionDetermination.TRUE)))
+                    result.add(ConditionWorldState(state + (condition to ConditionDetermination.UNKNOWN)))
+                }
+
+                ConditionDetermination.UNKNOWN -> {
+                    result.add(ConditionWorldState(state + (condition to ConditionDetermination.TRUE)))
+                    result.add(ConditionWorldState(state + (condition to ConditionDetermination.FALSE)))
+                }
+            }
+        }
+
+        return result
+    }
+
+    override infix fun satisfiesPreconditions(preconditions: EffectSpec): Boolean =
+        preconditions.all { (key, value) -> state[key] == value }
+
+    override fun infoString(verbose: Boolean?, indent: Int): String =
+        if (verbose == true)
+            state.entries
+                .toList()
+                .sortedWith(compareByDescending<Map.Entry<String, ConditionDetermination>> { it.value }.thenBy { it.key })
+                .joinToString("\n") { (k, v) ->
+                    (if (v == ConditionDetermination.TRUE)
+                        "$k: $v".color(LUMON_MEMBRANE_COLOR)
+                    else
+                        "$k: $v").indent(indent)
+                }
+        else
+            state.toString()
+}

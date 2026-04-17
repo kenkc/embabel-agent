@@ -13,11 +13,17 @@ include::types/page.adoc[]
 include::tools/page.adoc[]
 include::prompt-contributors/page.adoc[]
 include::templates/page.adoc[]
+include::rag/page.adoc[]
+include::chatbots/page.adoc[]
 
 include::agent-process/page.adoc[]
 include::agent-platform/page.adoc[]
 
 include::invoking/page.adoc[]
+
+include::states/page.adoc[]
+
+include::planners/page.adoc[]
 
 include::api-spi/page.adoc[]
 
@@ -25,9 +31,23 @@ include::spring/page.adoc[]
 
 include::llms/page.adoc[]
 
+include::bedrock/page.adoc[]
+
+include::minimax/page.adoc[]
+
+include::streaming/page.adoc[]
+
+include::thinking/page.adoc[]
+
+include::guardrails/page.adoc[]
+
+include::termination/page.adoc[]
+
 include::customizing/page.adoc[]
 
 include::integrations/page.adoc[]
+
+include::agent_skills/page.adoc[]
 
 include::testing/page.adoc[]
 
@@ -37,4 +57,6 @@ include::troubleshooting/page.adoc[]
 include::migrating/page.adoc[]
 
 include::api-evolution/page.adoc[]
+
+include::asynch-mode/page.adoc[]
 

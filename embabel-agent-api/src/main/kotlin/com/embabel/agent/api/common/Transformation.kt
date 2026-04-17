@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import com.embabel.agent.api.common.support.TransformationAction
 import com.embabel.agent.core.Action
 import com.embabel.agent.core.Agent
 import com.embabel.agent.core.resultOfType
-import com.embabel.common.core.types.ZeroToOne
+import com.embabel.plan.CostComputation
 
 fun <I, O : Any> asTransformation(
     agent: Agent,
@@ -61,8 +61,8 @@ fun <I, O : Any> asAction(
     outputClass: Class<O>,
     pre: List<String> = emptyList(),
     post: List<String> = emptyList(),
-    cost: ZeroToOne = 0.0,
-    value: ZeroToOne = 0.0,
+    cost: CostComputation = { 0.0 },
+    value: CostComputation = { 0.0 },
     canRerun: Boolean = false,
 ): Action {
     return TransformationAction(
@@ -100,8 +100,8 @@ fun <I, O : Any> agentTransformer(
     agent: Agent,
     pre: List<String> = emptyList(),
     post: List<String> = emptyList(),
-    cost: ZeroToOne = 0.0,
-    value: ZeroToOne = 0.0,
+    cost: CostComputation = { 0.0 },
+    value: CostComputation = { 0.0 },
     canRerun: Boolean = false,
     inputClass: Class<I>,
     outputClass: Class<O>,

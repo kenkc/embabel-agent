@@ -32,6 +32,52 @@ Use `LlmReference` if:
 For example, if you have a list of 10 items you might just put in the prompt and say "Here are all the items: ...".
 If you have a list of 10,000 objects, you would include advice to use the tools to query them.
 
+NOTE: An `LlmReference` is somewhat similar to a Claude Skill.
+
+`LlmReference` instances can be created programmatically or defined in YML using `LlmReferenceProvider` implementations.
+For example, you could define a `references.yml` file in this format:
+
+[source,yaml]
+----
+- fqn: com.embabel.coding.tools.git.GitHubRepository
+  url: https://github.com/embabel/embabel-agent-examples.git
+  description: Embabel examples Repository
+
+- fqn: com.embabel.coding.tools.git.GitHubRepository
+  url: https://github.com/embabel/java-agent-template.git
+  description: >
+    Java agent template Repository: Simplest Java example with Maven
+    Can be used as a GitHub template
+
+- fqn: com.embabel.coding.tools.git.GitHubRepository
+  url: https://github.com/embabel/embabel-agent.git
+  description: >
+    Embabel agent framework implementation repo: Look to check code under embabel-agent-api
+
+- fqn: com.embabel.coding.tools.api.ApiReferenceProvider
+  name: embabel-agent
+  description: Embabel Agent API
+  acceptedPackages:
+    - com.embabel.agent
+    - com.embabel.common
+----
+
+The `fqn` property specifies the fully qualified class name of the `LlmReferenceProvider` implementation.
+This enables you to define your own `LlmReferenceProvider` implementations.
+Out of the box, Embabel provides:
+
+- `com.embabel.agent.api.reference.LiteralText`: Text in `notes`
+- `com.embabel.agent.api.reference.SpringResource`: Contents of the given Spring resource path
+- `com.embabel.agent.api.reference.WebPage`: Content of the given web page, if it can be fetched
+- `com.embabel.coding.tools.git.GitHubRepository`: GitHub repositories (`embabel-agent-code` module)
+- `com.embabel.coding.tools.api.ApiReferenceProvider`: API from classpath (`embabel-agent-code` module)
+
+You can parse your YML files into `List<LlmReference>` using the `LlmReferenceProviders.fromYml` method.
+
+The `resource` argument is a Spring resource specification.
+
+Thus `LlmReferenceProviders.fromYml("references.yml")` will load `references.yml` under `src/main/resources/`
+
 ==== Built-in Convenience Classes
 
 Embabel provides several convenience classes that implement `PromptContributor` for common use cases.
@@ -41,6 +87,22 @@ These are optional utilities - you can always implement the interface directly f
 
 The `Persona` class provides a structured way to define an AI agent's personality and behavior:
 
+[tabs]
+====
+Java::
++
+[source,java]
+----
+var persona = Persona.create(
+    "Alex the Analyst",
+    "A detail-oriented data analyst with expertise in financial markets",
+    "Professional yet approachable, uses clear explanations",
+    "Help users understand complex financial data through clear analysis"
+);
+----
+
+Kotlin::
++
 [source,kotlin]
 ----
 val persona = Persona.create(
@@ -50,6 +112,7 @@ val persona = Persona.create(
     objective = "Help users understand complex financial data through clear analysis"
 )
 ----
+====
 
 This generates a prompt contribution like:
 
@@ -64,12 +127,26 @@ Your voice: Professional yet approachable, uses clear explanations.
 
 The `RoleGoalBackstory` class follows the Crew AI pattern and is included for users migrating from that framework:
 
+[tabs]
+====
+Java::
++
 [source,java]
 ----
 var agent = RoleGoalBackstory.withRole("Senior Software Engineer")
     .andGoal("Write clean, maintainable code")
+    .andBackstory("10+ years experience in enterprise software development");
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val agent = RoleGoalBackstory.withRole("Senior Software Engineer")
+    .andGoal("Write clean, maintainable code")
     .andBackstory("10+ years experience in enterprise software development")
 ----
+====
 
 This generates:
 
@@ -84,6 +161,45 @@ Backstory: 10+ years experience in enterprise software development
 You can create custom prompt contributors by implementing the interface directly.
 This gives you complete control over the prompt content:
 
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public class CustomSystemPrompt implements PromptContributor {
+    private final String systemName;
+
+    public CustomSystemPrompt(String systemName) {
+        this.systemName = systemName;
+    }
+
+    @Override
+    public String contribution() {
+        return "System: " + systemName + " - Current time: " + LocalDateTime.now();
+    }
+}
+
+public class ConditionalPrompt implements PromptContributor {
+    private final Supplier<Boolean> condition;
+    private final String trueContent;
+    private final String falseContent;
+
+    public ConditionalPrompt(Supplier<Boolean> condition, String trueContent, String falseContent) {
+        this.condition = condition;
+        this.trueContent = trueContent;
+        this.falseContent = falseContent;
+    }
+
+    @Override
+    public String contribution() {
+        return condition.get() ? trueContent : falseContent;
+    }
+}
+----
+
+Kotlin::
++
 [source,kotlin]
 ----
 class CustomSystemPrompt(private val systemName: String) : PromptContributor {
@@ -102,6 +218,7 @@ class ConditionalPrompt(
     }
 }
 ----
+====
 
 ==== Examples from embabel-agent-examples
 

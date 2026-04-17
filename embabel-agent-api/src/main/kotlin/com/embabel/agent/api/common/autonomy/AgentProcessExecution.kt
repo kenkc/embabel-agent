@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
  */
 package com.embabel.agent.api.common.autonomy
 
+import com.embabel.agent.api.common.ranking.Rankings
+import com.embabel.agent.api.event.AgentPlatformEvent
 import com.embabel.agent.core.*
 import com.embabel.agent.core.hitl.Awaitable
 import com.embabel.agent.core.hitl.AwaitableResponse
-import com.embabel.agent.event.AgentPlatformEvent
-import com.embabel.agent.spi.Rankings
 import com.embabel.common.core.types.HasInfoString
 import java.time.Instant
 

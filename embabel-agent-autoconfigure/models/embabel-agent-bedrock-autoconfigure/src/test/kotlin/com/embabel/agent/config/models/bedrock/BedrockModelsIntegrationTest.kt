@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,26 +15,29 @@
  */
 package com.embabel.agent.config.models.bedrock
 
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.APAC_ANTHROPIC_CLAUDE_3_5_HAIKU
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.APAC_ANTHROPIC_CLAUDE_3_5_SONNET
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.APAC_ANTHROPIC_CLAUDE_3_5_SONNET_V2
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.APAC_ANTHROPIC_CLAUDE_3_7_SONNET
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.APAC_ANTHROPIC_CLAUDE_OPUS_4
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.APAC_ANTHROPIC_CLAUDE_SONNET_4
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.EU_ANTHROPIC_CLAUDE_3_5_HAIKU
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.EU_ANTHROPIC_CLAUDE_3_5_SONNET
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.EU_ANTHROPIC_CLAUDE_3_5_SONNET_V2
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.EU_ANTHROPIC_CLAUDE_3_7_SONNET
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.EU_ANTHROPIC_CLAUDE_OPUS_4
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.EU_ANTHROPIC_CLAUDE_SONNET_4
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.US_ANTHROPIC_CLAUDE_3_5_HAIKU
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.US_ANTHROPIC_CLAUDE_3_5_SONNET
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.US_ANTHROPIC_CLAUDE_3_5_SONNET_V2
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.US_ANTHROPIC_CLAUDE_3_7_SONNET
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.US_ANTHROPIC_CLAUDE_OPUS_4
-import com.embabel.agent.config.models.bedrock.BedrockModels.Companion.US_ANTHROPIC_CLAUDE_SONNET_4
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.APAC_ANTHROPIC_CLAUDE_3_5_HAIKU
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.APAC_ANTHROPIC_CLAUDE_3_5_SONNET
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.APAC_ANTHROPIC_CLAUDE_3_5_SONNET_V2
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.APAC_ANTHROPIC_CLAUDE_3_7_SONNET
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.APAC_ANTHROPIC_CLAUDE_HAIKU_4_5
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.APAC_ANTHROPIC_CLAUDE_OPUS_4
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.APAC_ANTHROPIC_CLAUDE_SONNET_4
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.EU_ANTHROPIC_CLAUDE_3_5_HAIKU
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.EU_ANTHROPIC_CLAUDE_3_5_SONNET
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.EU_ANTHROPIC_CLAUDE_3_5_SONNET_V2
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.EU_ANTHROPIC_CLAUDE_3_7_SONNET
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.EU_ANTHROPIC_CLAUDE_HAIKU_4_5
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.EU_ANTHROPIC_CLAUDE_OPUS_4
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.EU_ANTHROPIC_CLAUDE_SONNET_4
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.US_ANTHROPIC_CLAUDE_3_5_HAIKU
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.US_ANTHROPIC_CLAUDE_3_5_SONNET
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.US_ANTHROPIC_CLAUDE_3_5_SONNET_V2
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.US_ANTHROPIC_CLAUDE_3_7_SONNET
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.US_ANTHROPIC_CLAUDE_HAIKU_4_5
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.US_ANTHROPIC_CLAUDE_OPUS_4
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig.Companion.US_ANTHROPIC_CLAUDE_SONNET_4
 import com.embabel.common.ai.model.EmbeddingService
-import com.embabel.common.ai.model.Llm
+import com.embabel.agent.spi.LlmService
 import org.junit.jupiter.api.Test
 import org.springframework.ai.bedrock.cohere.api.CohereEmbeddingBedrockApi.CohereEmbeddingModel.COHERE_EMBED_ENGLISH_V3
 import org.springframework.ai.bedrock.cohere.api.CohereEmbeddingBedrockApi.CohereEmbeddingModel.COHERE_EMBED_MULTILINGUAL_V3
@@ -56,7 +59,6 @@ import kotlin.test.assertTrue
         "spring.ai.bedrock.aws.secret-key=AWSSECRETACCESSKEY",
     ]
 )
-@ActiveProfiles(value = ["bedrock"])
 class BedrockModelsIntegrationTest {
 
     @Autowired
@@ -64,9 +66,9 @@ class BedrockModelsIntegrationTest {
 
     @Test
     fun `should register Bedrock Llms`() {
-        val bedrockLlmsNames = applicationContext.getBeanNamesForType(Llm::class.java)
+        val bedrockLlmsNames = applicationContext.getBeanNamesForType(LlmService::class.java)
             .filter { it.startsWith("bedrockModel-") }
-            .map { applicationContext.getBean(it, Llm::class.java) }
+            .map { applicationContext.getBean(it, LlmService::class.java) }
             .map { it.name }
 
         assertTrue(
@@ -76,18 +78,21 @@ class BedrockModelsIntegrationTest {
                     EU_ANTHROPIC_CLAUDE_3_5_SONNET_V2,
                     EU_ANTHROPIC_CLAUDE_3_5_HAIKU,
                     EU_ANTHROPIC_CLAUDE_3_7_SONNET,
+                    EU_ANTHROPIC_CLAUDE_HAIKU_4_5,
                     EU_ANTHROPIC_CLAUDE_SONNET_4,
                     EU_ANTHROPIC_CLAUDE_OPUS_4,
                     US_ANTHROPIC_CLAUDE_3_5_SONNET,
                     US_ANTHROPIC_CLAUDE_3_5_SONNET_V2,
                     US_ANTHROPIC_CLAUDE_3_5_HAIKU,
                     US_ANTHROPIC_CLAUDE_3_7_SONNET,
+                    US_ANTHROPIC_CLAUDE_HAIKU_4_5,
                     US_ANTHROPIC_CLAUDE_SONNET_4,
                     US_ANTHROPIC_CLAUDE_OPUS_4,
                     APAC_ANTHROPIC_CLAUDE_3_5_SONNET,
                     APAC_ANTHROPIC_CLAUDE_3_5_SONNET_V2,
                     APAC_ANTHROPIC_CLAUDE_3_5_HAIKU,
                     APAC_ANTHROPIC_CLAUDE_3_7_SONNET,
+                    APAC_ANTHROPIC_CLAUDE_HAIKU_4_5,
                     APAC_ANTHROPIC_CLAUDE_SONNET_4,
                     APAC_ANTHROPIC_CLAUDE_OPUS_4
                 )

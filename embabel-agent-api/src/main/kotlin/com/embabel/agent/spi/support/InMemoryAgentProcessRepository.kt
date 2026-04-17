@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
  */
 package com.embabel.agent.spi.support
 
-import com.embabel.agent.config.ProcessRepositoryProperties
 import com.embabel.agent.core.AgentProcess
-import com.embabel.agent.spi.AgentProcessRepository
+import com.embabel.agent.core.AgentProcessRepository
+import com.embabel.agent.spi.config.spring.ProcessRepositoryProperties
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.locks.ReentrantReadWriteLock
@@ -35,9 +35,14 @@ class InMemoryAgentProcessRepository(
     private val map: ConcurrentHashMap<String, AgentProcess> = ConcurrentHashMap()
     private val accessOrder: ConcurrentLinkedQueue<String> = ConcurrentLinkedQueue()
     private val lock = ReentrantReadWriteLock()
+    private val evictionPolicy = HierarchyAwareEvictionPolicy(properties.windowSize)
 
     override fun findById(id: String): AgentProcess? = lock.read {
         map[id]
+    }
+
+    override fun findByParentId(parentId: String): List<AgentProcess> = lock.read {
+        map.values.filter { it.parentId == parentId }
     }
 
     override fun save(agentProcess: AgentProcess): AgentProcess = lock.write {
@@ -49,16 +54,19 @@ class InMemoryAgentProcessRepository(
         }
 
         map[processId] = agentProcess
-        accessOrder.offer(processId)
 
-        while (map.size > properties.windowSize) {
-            val oldestId = accessOrder.poll()
-            if (oldestId != null) {
-                map.remove(oldestId)
-            }
+        // Only track root processes for eviction.
+        // Child processes are evicted together with their parent hierarchy.
+        if (agentProcess.isRootProcess) {
+            accessOrder.offer(processId)
+            evictionPolicy.evictIfNeeded(accessOrder, map)
         }
 
         agentProcess
+    }
+
+    override fun update(agentProcess: AgentProcess) {
+        // Nothing to do here as the reference is already updated in memory
     }
 
     override fun delete(agentProcess: AgentProcess) {

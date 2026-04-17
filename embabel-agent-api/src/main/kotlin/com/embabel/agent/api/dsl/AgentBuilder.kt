@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,17 +21,18 @@ import com.embabel.agent.api.common.TransformationActionContext
 import com.embabel.agent.api.common.asAction
 import com.embabel.agent.api.common.support.TransformationAction
 import com.embabel.agent.api.dsl.support.promptTransformer
+import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.core.*
 import com.embabel.agent.experimental.primitive.PromptCondition
-import com.embabel.agent.spi.LlmCall
+import com.embabel.agent.core.support.LlmCall
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.prompt.PromptContributor
 import com.embabel.common.ai.prompt.PromptContributorConsumer
 import com.embabel.common.core.types.Semver
 import com.embabel.common.core.types.ZeroToOne
-import com.embabel.plan.goap.ConditionDetermination
+import com.embabel.plan.CostComputation
+import com.embabel.plan.common.condition.ConditionDetermination
 import org.slf4j.LoggerFactory
-import org.springframework.ai.tool.ToolCallback
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 
@@ -106,8 +107,8 @@ class AgentBuilder(
      * Add a pattern builder, such as an aggregation flow, to the agent.
      * Must be used if you have multiple actions
      */
-    fun flow(block: AgentBuilder.() -> AgentScopeBuilder<*>) {
-        val agentScope = block().build()
+    fun flow(block: AgentBuilder.() -> TypedAgentScopeBuilder<*>) {
+        val agentScope = block().createAgentScope()
         logger.info(
             "Adding actions from agent scope {}: {}",
             agentScope.name,
@@ -125,9 +126,11 @@ class AgentBuilder(
         preConditions: List<Condition> = emptyList(),
         pre: List<String> = emptyList(),
         post: List<Condition> = emptyList(),
+        canRerun: Boolean = false,
         inputVarName: String = IoBinding.DEFAULT_BINDING,
         outputVarName: String? = IoBinding.DEFAULT_BINDING,
-        cost: ZeroToOne = 0.0,
+        noinline cost: CostComputation = { 0.0 },
+        noinline value: CostComputation = { 0.0 },
         toolGroups: Set<ToolGroupRequirement> = emptySet(),
         qos: ActionQos = ActionQos(),
         referencedInputProperties: Set<String>? = null,
@@ -138,7 +141,9 @@ class AgentBuilder(
             description = description,
             pre = pre + preConditions.map { it.name },
             post = post.map { it.name },
+            canRerun = canRerun,
             cost = cost,
+            value = value,
             qos = qos,
             inputVarName = inputVarName,
             outputVarName = outputVarName,
@@ -161,14 +166,14 @@ class AgentBuilder(
         post: List<Condition> = emptyList(),
         inputVarName: String = IoBinding.DEFAULT_BINDING,
         outputVarName: String = IoBinding.DEFAULT_BINDING,
-        cost: ZeroToOne = 0.0,
+        noinline cost: CostComputation = { 0.0 },
         toolGroups: Set<ToolGroupRequirement> = emptySet(),
         qos: ActionQos = ActionQos(),
         referencedInputProperties: Set<String>? = null,
         llm: LlmOptions = LlmOptions(),
         promptContributors: List<PromptContributor> = emptyList(),
         canRerun: Boolean = false,
-        toolCallbacks: Collection<ToolCallback> = emptyList(),
+        tools: Collection<Tool> = emptyList(),
         noinline prompt: (actionContext: TransformationActionContext<I, O>) -> String,
     ) {
         val action = promptTransformer(
@@ -184,7 +189,7 @@ class AgentBuilder(
             referencedInputProperties = referencedInputProperties,
             llm = llm,
             canRerun = canRerun,
-            toolCallbacks = toolCallbacks,
+            tools = tools,
             prompt = prompt,
             promptContributors = this.promptContributors + promptContributors,
             inputClass = I::class.java,
@@ -219,7 +224,7 @@ class AgentBuilder(
             )
         }.toSet(),
         pre: List<Condition> = emptyList(),
-        value: ZeroToOne = 0.0,
+        value: CostComputation = { 0.0 },
         export: Export = Export(),
     ) {
         // TODO check validity
@@ -264,7 +269,7 @@ class AgentBuilder(
         ): Condition = condition
     }
 
-    fun condition(
+    fun conditionOf(
         name: String? = null,
         cost: ZeroToOne = 0.0,
         block: ConditionPredicate,
@@ -293,7 +298,7 @@ class AgentBuilder(
      * type safe access
      * val myCondition = condition("custom prompt")
      */
-    fun condition(
+    fun promptedCondition(
         name: String? = null,
         prompt: (context: OperationContext) -> String,
         llm: LlmCall = LlmCall(),

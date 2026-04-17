@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,16 +22,38 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class BudgetBuilderTest {
 
     @Test
-    void builder() {
-        var budget = Budget.builder()
-                .cost(1)
-                .actions(2)
-                .tokens(3)
-                .build();
+    void constructorWithAllParameters() {
+        var budget = new Budget(1.0, 2, 3);
 
-        assertEquals(1, budget.getCost());
+        assertEquals(1.0, budget.getCost());
         assertEquals(2, budget.getActions());
         assertEquals(3, budget.getTokens());
+    }
+
+    @Test
+    void defaultConstructor() {
+        var budget = new Budget();
+
+        assertEquals(Budget.DEFAULT_COST_LIMIT, budget.getCost());
+        assertEquals(Budget.DEFAULT_ACTION_LIMIT, budget.getActions());
+        assertEquals(Budget.DEFAULT_TOKEN_LIMIT, budget.getTokens());
+    }
+
+    @Test
+    void withers() {
+        var budget = Budget.DEFAULT
+                .withCost(1.0)
+                .withActions(2)
+                .withTokens(3);
+
+        assertEquals(1.0, budget.getCost());
+        assertEquals(2, budget.getActions());
+        assertEquals(3, budget.getTokens());
+    }
+
+    @Test
+    void defaultConstant() {
+        assertEquals(new Budget(), Budget.DEFAULT);
     }
 
 }

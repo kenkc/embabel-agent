@@ -7,6 +7,10 @@
 name: Publish Docs
 
 on:
+  # Triggered from Build workflow when .adoc files change
+  repository_dispatch:
+    types: [publish-docs]
+
   workflow_dispatch:  # Enables manual triggering
     inputs:
       environment:
@@ -34,14 +38,7 @@ on:
     branches:
       - main
     paths:
-      - 'embabel-agent/embabel-agent-docs/**'
-  
-  # Also trigger on pull requests to docs
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'embabel-agent/embabel-agent-docs/**'
+      - 'embabel-agent-docs/**/*.adoc'
   
 env:
   PROJECT_ID: ${{ github.event.inputs.environment || 'embabel-dev' }}
@@ -75,7 +72,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn package
+        run: mvn -Pguide-html,dokka package
 
       - name: Extract version from pom.xml
         id: get_version
@@ -155,3 +152,9 @@ jobs:
               echo 'Testing web access:' &&
               curl -I http://localhost/embabel-agent/guide/$VERSION/index.html || echo 'Versioned guide not responding'
             "
+      - name: Trigger acceptance repo workflow to validate User Guide
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          repository: embabel/embabel-acceptance-tests
+          event-type: publish-docs

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,11 @@
  */
 package com.embabel.agent.core
 
-import com.embabel.common.core.types.ZeroToOne
 import com.embabel.common.util.indent
 import com.embabel.common.util.indentLines
 import com.embabel.common.util.loggerFor
-import com.embabel.plan.goap.EffectSpec
-import com.embabel.plan.goap.GoapAction
+import com.embabel.plan.common.condition.ConditionAction
+import com.embabel.plan.common.condition.EffectSpec
 
 
 /**
@@ -32,15 +31,22 @@ import com.embabel.plan.goap.GoapAction
  * representation such as YML.
  * @qos Quality of Service. Governs retry policy
  */
-interface Action : DataFlowStep, GoapAction, ActionRunner, DataDictionary, ToolGroupConsumer {
-
-    override val cost: ZeroToOne get() = 0.0
+interface Action : DataFlowStep, ConditionAction, ActionRunner, DataDictionary, ToolGroupConsumer {
 
     /**
-     * Can this action be run again if it has already run?
+     * Can this action be run again if it has already run in the given AgentProcess?
      * Must be set to true to allow looping style behavior.
      */
     val canRerun: Boolean
+
+    /**
+     * Does this action have no external side effects?
+     * Read-only actions only analyze data and produce derived objects
+     * without modifying external systems (APIs, databases, files, etc.).
+     * Used for learning/catchup modes where we want to ingest and understand
+     * data without triggering mutations.
+     */
+    val readOnly: Boolean get() = false
 
     /**
      * Quality of Service for this action.
@@ -52,7 +58,7 @@ interface Action : DataFlowStep, GoapAction, ActionRunner, DataDictionary, ToolG
             (inputs + outputs)
                 .map {
                     referencedType(it, this)
-                }
+                }.toSet()
 
     private fun referencedType(
         binding: IoBinding,
@@ -61,7 +67,7 @@ interface Action : DataFlowStep, GoapAction, ActionRunner, DataDictionary, ToolG
         var type = DynamicType(name = binding.type)
         for (prop in action.referencedInputProperties(binding.name)) {
             loggerFor<Action>().debug("Discovered property {}", prop)
-            type = type.withProperty(PropertyDefinition(name = prop))
+            type = type.withProperty(ValuePropertyDefinition(name = prop))
         }
         loggerFor<Action>().debug(
             "Action {} references variable {} of type {}: {}",
@@ -113,9 +119,8 @@ data class ActionMetadata(
     val outputs: Set<IoBinding>,
     val preconditions: EffectSpec,
     val effects: EffectSpec,
-    val cost: ZeroToOne,
-    val value: ZeroToOne,
     val canRerun: Boolean,
+    val readOnly: Boolean,
     val qos: ActionQos,
 ) {
 
@@ -128,9 +133,8 @@ data class ActionMetadata(
         outputs = action.outputs,
         preconditions = action.preconditions,
         effects = action.effects,
-        cost = action.cost,
-        value = action.value,
         canRerun = action.canRerun,
+        readOnly = action.readOnly,
         qos = action.qos,
     )
 }

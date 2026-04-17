@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,6 +57,31 @@ class SuppressThinkingConverterTest {
         @Test
         fun `with preface think blog`() {
             checkThinkContent("I am thinking")
+        }
+    }
+
+    @Nested
+    inner class SequentialProcessing {
+
+        @Test
+        fun `applies all finders sequentially - TAG then PREFIX`() {
+            val converter = SuppressThinkingConverter(BeanOutputConverter(Dog::class.java))
+            val input = """<think>First thinking block</think>
+                //THINKING: Second thinking block
+                {"name": "Rex"}""".trimMargin()
+            val result = converter.convert(input)
+            assertNotNull(result!!)
+            assertEquals("Rex", result.name)
+        }
+
+        @Test
+        fun `early termination when JSON is already valid`() {
+            // If the input is already valid JSON, no sanitization should occur
+            val converter = SuppressThinkingConverter(BeanOutputConverter(Dog::class.java))
+            val input = """{"name": "Rex"}"""
+            val result = converter.convert(input)
+            assertNotNull(result!!)
+            assertEquals("Rex", result.name)
         }
     }
 

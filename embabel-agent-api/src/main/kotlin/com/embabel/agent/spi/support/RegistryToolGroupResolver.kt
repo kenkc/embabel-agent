@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,11 @@ class RegistryToolGroupResolver(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     init {
-        logger.info(infoString(verbose = true))
+        // Use verbose=false so the startup log only shows the resolver name, group count,
+        // and role names — without accessing each ToolGroup's `tools` property.
+        // verbose=true iterates tools, which for MCP-backed groups triggers the client
+        // handshake and defeats just-in-time initialization.
+        logger.info(infoString(verbose = false))
     }
 
     override fun availableToolGroups(): List<ToolGroupMetadata> = toolGroups.map { it.metadata }
@@ -57,7 +61,9 @@ class RegistryToolGroupResolver(
     }
 
     override fun findToolGroupForTool(toolName: String): ToolGroupResolution {
-        val group = toolGroups.find { it.toolCallbacks.map { it.toolDefinition.name() }.contains(toolName) }
+        val group = toolGroups.find { tg ->
+            tg.tools.any { it.definition.name == toolName }
+        }
         return if (group == null) {
             ToolGroupResolution(
                 resolvedToolGroup = null,
@@ -71,7 +77,7 @@ class RegistryToolGroupResolver(
     }
 
     override fun toString(): String {
-        return "RegistryToolGroupResolver(name='$name', ${toolGroups.size} toolGroups: ${toolGroups.joinToString(", ") { it.metadata.role }})"
+        return "RegistryToolGroupResolver(name='$name', ${toolGroups.size} toolGroups: ${toolGroups.map { it.metadata.role }.sorted().joinToString(", ")})"
     }
 
     override fun infoString(
@@ -79,7 +85,7 @@ class RegistryToolGroupResolver(
         indent: Int,
     ): String {
         if (verbose == false) {
-            return "RegistryToolGroupResolver(name='$name', ${toolGroups.size} tool groups)"
+            return "RegistryToolGroupResolver(name='$name', ${toolGroups.size} tool groups: ${toolGroups.map { it.metadata.role }.sorted().joinToString(", ")})"
         }
         return "RegistryToolGroupResolver: name='$name', ${toolGroups.size} available tool groups:\n\t${
             toolGroups.sortedBy { it.metadata.role }

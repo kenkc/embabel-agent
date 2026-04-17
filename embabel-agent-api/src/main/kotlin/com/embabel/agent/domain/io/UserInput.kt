@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,16 +24,24 @@ import java.time.Instant
 interface SystemInput : Timestamped
 
 /**
+ * Superinterface for all inputs that come from users
+ * This can be useful to drive guardrails
+ */
+interface UserContent : HasContent, Timestamped
+
+/**
+ * Superinterface for all inputs that come from AI assistants
+ * This can be useful to drive guardrails
+ */
+interface AssistantContent : HasContent, Timestamped
+
+/**
  * Special class that represents a single user input
  * Starting point for many flows.
  */
 @JsonIgnoreProperties(value = ["timestamp"], allowGetters = true)
-data class UserInput(
+data class UserInput @JvmOverloads constructor(
     @get:JsonPropertyDescription("user input")
     override val content: String,
     override val timestamp: Instant = Instant.now(),
-) : SystemInput, HasContent {
-
-    // For Java
-    constructor (content: String) : this(content, Instant.now())
-}
+) : SystemInput, UserContent

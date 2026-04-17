@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
  */
 package com.embabel.agent.config.models.deepseek
 
-import com.embabel.agent.common.RetryProperties
-import com.embabel.agent.config.models.DeepSeekModels
-import com.embabel.common.ai.model.Llm
+import com.embabel.agent.api.models.DeepSeekModels
+import com.embabel.agent.spi.common.RetryProperties
+import com.embabel.agent.spi.support.springai.SpringAiLlmService
 import com.embabel.common.ai.model.OptionsConverter
 import com.embabel.common.ai.model.PerTokenPricingModel
 import com.embabel.common.util.ExcludeFromJacocoGeneratedReport
@@ -30,6 +30,7 @@ import org.springframework.ai.model.tool.ToolCallingManager
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.context.properties.ConfigurationProperties
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.web.client.RestClient
@@ -44,6 +45,16 @@ import java.time.LocalDate
  */
 @ConfigurationProperties(prefix = "embabel.agent.platform.models.deepseek")
 class DeepSeekProperties : RetryProperties {
+    /**
+     * Base URL for DeepSeek API requests.
+     */
+    var baseUrl: String? = null
+
+    /**
+     * API key for authenticating with DeepSeek services.
+     */
+    var apiKey: String? = null
+
     /**
      *  Maximum number of attempts.
      */
@@ -71,23 +82,28 @@ class DeepSeekProperties : RetryProperties {
  * and handles the creation of DeepSeek API clients with proper authentication.
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(DeepSeekProperties::class)
 @ExcludeFromJacocoGeneratedReport(reason = "DeepSeek configuration can't be unit tested")
 class DeepSeekModelsConfig(
-    @param:Value("\${DEEPSEEK_BASE_URL:}")
-    private val baseUrl: String,
-    @param:Value("\${DEEPSEEK_API_KEY}")
-    private val apiKey: String,
+    @param:Value("\${DEEPSEEK_BASE_URL:#{null}}")
+    private val envBaseUrl: String?,
+    @param:Value("\${DEEPSEEK_API_KEY:#{null}}")
+    private val envApiKey: String?,
     private val properties: DeepSeekProperties,
     private val observationRegistry: ObjectProvider<ObservationRegistry>,
 ) {
     private val logger = LoggerFactory.getLogger(DeepSeekModelsConfig::class.java)
+
+    private val baseUrl: String? = envBaseUrl ?: properties.baseUrl
+    private val apiKey: String = envApiKey ?: properties.apiKey
+    ?: error("DeepSeek API key required: set DEEPSEEK_API_KEY env var or embabel.agent.platform.models.deepseek.api-key")
 
     init {
         logger.info("DeepSeek models are available: {}", properties)
     }
 
     @Bean
-    fun deepSeekChat(): Llm {
+    fun deepSeekChat(): SpringAiLlmService {
         return deepSeekLlmOf(
             DeepSeekModels.DEEPSEEK_CHAT,
             knowledgeCutoffDate = LocalDate.of(2025, 8, 21),
@@ -104,7 +120,7 @@ class DeepSeekModelsConfig(
     }
 
     @Bean
-    fun deepSeekReasoner(): Llm = deepSeekLlmOf(
+    fun deepSeekReasoner(): SpringAiLlmService = deepSeekLlmOf(
         DeepSeekModels.DEEPSEEK_REASONER,
         knowledgeCutoffDate = LocalDate.of(2025, 5, 28),
     )
@@ -120,14 +136,16 @@ class DeepSeekModelsConfig(
 
     private fun deepSeekLlmOf(
         name: String,
-        knowledgeCutoffDate: LocalDate?
-    ): Llm {
-        val chatModel = DeepSeekChatModel
+        knowledgeCutoffDate: LocalDate?,
+    ): SpringAiLlmService {
+        val deepSeekChatModel = DeepSeekChatModel
             .builder()
             .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
-            .toolCallingManager(ToolCallingManager.builder()
-                .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
-                .build())
+            .toolCallingManager(
+                ToolCallingManager.builder()
+                    .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+                    .build()
+            )
             .defaultOptions(
                 DeepSeekChatOptions.builder()
                     .model(name)
@@ -136,9 +154,9 @@ class DeepSeekModelsConfig(
             .deepSeekApi(createDeepSeekApi())
             .retryTemplate(properties.retryTemplate(name))
             .build()
-        return Llm(
+        return SpringAiLlmService(
             name = name,
-            model = chatModel,
+            chatModel = deepSeekChatModel,
             provider = DeepSeekModels.PROVIDER,
             optionsConverter = DeepSeekOptionsConverter,
             knowledgeCutoffDate = knowledgeCutoffDate,
@@ -148,15 +166,19 @@ class DeepSeekModelsConfig(
     private fun createDeepSeekApi(): DeepSeekApi {
         val builder = DeepSeekApi.builder().apiKey(apiKey)
         // If baseUrl is blank, use default baseUrl https://api.deepseek.com
-        if (baseUrl.isNotBlank()) {
+        if (!baseUrl.isNullOrBlank()) {
             logger.info("Using custom DeepSeek base URL: {}", baseUrl)
             builder.baseUrl(baseUrl)
         }
         return builder
-            .restClientBuilder(RestClient.builder()
-                .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP }))
-            .webClientBuilder(WebClient.builder()
-                .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP }))
+            .restClientBuilder(
+                RestClient.builder()
+                    .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+            )
+            .webClientBuilder(
+                WebClient.builder()
+                    .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+            )
             .build()
     }
 }

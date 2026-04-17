@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@ package com.embabel.agent.api.annotation.support
 
 import com.embabel.agent.api.common.OperationContext
 import com.embabel.agent.api.dsl.Frog
-import com.embabel.agent.testing.unit.FakeOperationContext
-import com.embabel.plan.goap.ConditionDetermination
+import com.embabel.agent.test.unit.FakeOperationContext
+import com.embabel.plan.common.condition.ConditionDetermination
 import io.mockk.every
 import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertEquals

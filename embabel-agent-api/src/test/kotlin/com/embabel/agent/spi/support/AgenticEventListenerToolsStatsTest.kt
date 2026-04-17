@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,9 @@
 package com.embabel.agent.spi.support
 
 import com.embabel.agent.api.dsl.evenMoreEvilWizard
-import com.embabel.agent.event.ToolCallRequestEvent
-import com.embabel.agent.event.ToolCallResponseEvent
-import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentProcessRunning
+import com.embabel.agent.api.event.ToolCallRequestEvent
+import com.embabel.agent.api.event.ToolCallResponseEvent
+import com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentProcessRunning
 import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Nested
@@ -30,7 +30,7 @@ class AgenticEventListenerToolsStatsTest {
     private fun newEvent(
         function: String,
         isFailure: Boolean = false,
-        runningTime: Duration = Duration.ofMillis(100)
+        runningTime: Duration = Duration.ofMillis(100),
     ): ToolCallResponseEvent {
         val toolCallRequestEvent = ToolCallRequestEvent(
             agentProcess = dummyAgentProcessRunning(evenMoreEvilWizard()),

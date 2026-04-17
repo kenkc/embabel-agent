@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 package com.embabel.agent.rag.pipeline.event
 
 import com.embabel.agent.event.RagEvent
-import com.embabel.agent.rag.RagRequest
-import com.embabel.agent.rag.RagResponse
+import com.embabel.agent.rag.service.RagRequest
+import com.embabel.agent.rag.service.RagResponse
 import java.time.Instant
 
 /**

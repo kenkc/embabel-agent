@@ -1,0 +1,853 @@
+[[reference.states]]
+=== Using States
+
+GOAP planning has many benefits, but can make looping hard to express.
+For this reason, Embabel supports the notion of *states* within a GOAP plan.
+
+==== How States Work with GOAP
+
+Within each state, GOAP planning works normally.
+Actions have preconditions based on the types they require, and effects based on the types they produce.
+The planner finds the optimal sequence of actions to reach the goal.
+
+When an action returns a `@State`-annotated class, the framework:
+
+1. **Hides previous state objects** - Any existing state objects are hidden from the blackboard
+2. **Binds the new state object** - The returned state is added to the blackboard
+3. **Re-plans from the new state** - The planner considers only actions from the new state
+4. **Continues execution** - Until a goal is reached or no plan can be found
+
+**Context is preserved** across state transitions - non-state objects (such as user messages, customer data, and conversation history) remain available.
+Only state objects are hidden, ensuring that only the current state's actions are considered by the planner.
+
+NOTE: State transitions **hide** previous state objects but do **not clear** the blackboard.
+Non-state objects remain available in the new state.
+To clear the entire blackboard (e.g., for looping), use `clearBlackboard = true` on the action.
+
+==== When to Use States
+
+States are ideal for:
+
+- **Linear stages** where each stage naturally flows to the next
+- **Branching workflows** where a decision point leads to different processing paths
+- **Looping patterns** where processing may need to repeat (e.g., revise-and-review cycles)
+- **Human-in-the-loop workflows** where user feedback determines the next state
+- **Complex workflows** that are easier to reason about as discrete phases
+
+States allow loopback to a whole state, which may contain one or more actions.
+This is more flexible than traditional GOAP, where looping requires careful management of preconditions.
+
+==== Staying in the Current State
+
+An action can return `this` to stay in the current state.
+This is useful for actions that respond to inputs without changing state, such as chat handlers:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@State
+record ChitchatState(String context) {
+    @Action(canRerun = true)  // <1>
+    ChitchatState respond(UserMessage message, Ai ai) {
+        var response = ai.generateText("Respond to: " + message.content());
+        // ... send response
+        return this;  // <2>
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@State
+data class ChitchatState(val context: String) {
+    @Action(canRerun = true)  // <1>
+    fun respond(message: UserMessage, ai: Ai): ChitchatState {
+        val response = ai.generateText("Respond to: ${message.content()}")
+        // ... send response
+        return this  // <2>
+    }
+}
+----
+====
+
+<1> `canRerun = true` is required - by default, actions only run once per process
+<2> Returning `this` keeps the same state instance active
+
+When an action returns `this`:
+
+- The state remains active with no transition
+- The blackboard is preserved (no clearing)
+- The action can run again on subsequent planning cycles (if `canRerun = true`)
+
+NOTE: Without `canRerun = true`, the action's `hasRun` flag would prevent it from executing again, even though it returned `this`.
+
+==== Looping States
+
+For looping patterns where an action may return to a previously-visited state type, use `clearBlackboard = true` on the looping action:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@State
+record ProcessingState(String data, int iteration) implements LoopOutcome {
+    @Action(clearBlackboard = true)  // <1>
+    LoopOutcome process() {
+        if (iteration >= 3) {
+            return new DoneState(data);  // <2>
+        }
+        return new ProcessingState(data + "+", iteration + 1);  // <3>
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@State
+data class ProcessingState(val data: String, val iteration: Int) : LoopOutcome {
+    @Action(clearBlackboard = true)  // <1>
+    fun process(): LoopOutcome {
+        if (iteration >= 3) {
+            return DoneState(data)  // <2>
+        }
+        return ProcessingState("$data+", iteration + 1)  // <3>
+    }
+}
+----
+====
+
+<1> `clearBlackboard = true` allows the action to loop back to the same state type
+<2> Terminal condition exits the loop
+<3> Returns a new instance of the same state type for another iteration
+
+Without `clearBlackboard = true`, the planner would see the output type already exists on the blackboard and skip the action.
+Clearing the blackboard resets the context, allowing natural loops.
+
+TIP: Only use `clearBlackboard = true` on actions that participate in loops.
+For linear state transitions, the default behavior (preserving the blackboard) is usually preferred.
+
+==== The @State Annotation
+
+Classes returned from actions that should trigger state transitions must be annotated with `@State`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@State
+record ProcessingState(String data) {
+    @Action
+    NextState process() {
+        return new NextState(data.toUpperCase());
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@State
+data class ProcessingState(val data: String) {
+    @Action
+    fun process(): NextState {
+        return NextState(data.uppercase())
+    }
+}
+----
+====
+
+===== Inheritance
+
+The `@State` annotation is inherited through the class hierarchy.
+If a superclass or interface is annotated with `@State`, all subclasses and implementing classes are automatically considered state types.
+This means you don't need to annotate every class in a hierarchy - just annotate the base type.
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@State
+interface Stage {}  // <1>
+
+record AssessStory(String content) implements Stage { ... }  // <2>
+record ReviseStory(String content) implements Stage { ... }
+record Done(String content) implements Stage { ... }
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@State
+interface Stage  // <1>
+
+data class AssessStory(val content: String) : Stage { ... }  // <2>
+data class ReviseStory(val content: String) : Stage { ... }
+data class Done(val content: String) : Stage { ... }
+----
+====
+
+<1> Only the parent interface needs `@State`
+<2> Implementing records/data classes are automatically treated as state types
+
+This works with:
+
+- **Interfaces**: Classes implementing a `@State` interface are state types
+- **Abstract classes**: Classes extending a `@State` abstract class are state types
+- **Concrete classes**: Classes extending a `@State` class are state types
+- **Deep hierarchies**: The annotation is inherited through multiple levels
+
+===== Behavior
+
+When an action returns a `@State`-annotated class (or a class that inherits `@State`):
+
+- Any previous state objects are **hidden** from the blackboard (not removed, but no longer visible)
+- The returned object is bound to the blackboard (as `it`)
+- Planning considers only actions defined within the **current** state class
+- Any `@AchievesGoal` methods in the state become potential goals
+
+Context (non-state objects) is preserved across state transitions.
+This means user messages, customer data, conversation history, etc. remain available in the new state.
+Only state objects are hidden, providing **state scoping** - ensuring only the current state's actions are considered.
+
+TIP: For looping states that return to a previously-visited state type, use `@Action(clearBlackboard = true)` on the looping action.
+This clears the blackboard (including hasRun conditions) and allows the loop to continue.
+See <<Looping States>> for details.
+
+==== Parent State Interface Pattern
+
+For dynamic choice between states, define a parent interface (or sealed interface/class) that child states implement.
+Thanks to <<Inheritance,inheritance>>, you only need to annotate the parent interface - all implementing classes are automatically state types:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@State
+interface Stage {}  // <1>
+
+record AssessStory(String content) implements Stage {  // <2>
+    @Action
+    Stage assess() {
+        if (isAcceptable()) {
+            return new Done(content);
+        } else {
+            return new ReviseStory(content);
+        }
+    }
+}
+
+record ReviseStory(String content) implements Stage {
+    @Action
+    AssessStory revise() {
+        return new AssessStory(improvedContent());
+    }
+}
+
+record Done(String content) implements Stage {
+    @AchievesGoal(description = "Processing complete")
+    @Action
+    Output complete() {
+        return new Output(content);
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@State
+interface Stage  // <1>
+
+data class AssessStory(val content: String) : Stage {  // <2>
+    @Action
+    fun assess(): Stage {
+        return if (isAcceptable()) {
+            Done(content)
+        } else {
+            ReviseStory(content)
+        }
+    }
+}
+
+data class ReviseStory(val content: String) : Stage {
+    @Action
+    fun revise(): AssessStory {
+        return AssessStory(improvedContent())
+    }
+}
+
+data class Done(val content: String) : Stage {
+    @AchievesGoal(description = "Processing complete")
+    @Action
+    fun complete(): Output {
+        return Output(content)
+    }
+}
+----
+====
+
+<1> `@State` on the parent interface
+<2> No `@State` needed on implementing records/data classes - they inherit it from `Stage`
+
+This pattern enables:
+
+- **Polymorphic return types**: Actions can return any implementation of the parent interface
+- **Dynamic routing**: The runtime value determines which state is entered
+- **Looping**: States can return other states that eventually loop back
+
+The framework automatically discovers all implementations of the parent interface and registers their actions as potential next steps.
+
+==== Example: WriteAndReviewAgent
+
+The following example demonstrates a complete write-and-review workflow with:
+
+- State-based flow control with looping
+- Human-in-the-loop feedback using `WaitFor`
+- LLM-powered content generation and assessment
+- Configurable properties passed through states
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+abstract class Personas { // <1>
+    static final RoleGoalBackstory WRITER = RoleGoalBackstory
+            .withRole("Creative Storyteller")
+            .andGoal("Write engaging and imaginative stories")
+            .andBackstory("Has a PhD in French literature; used to work in a circus");
+
+    static final Persona REVIEWER = new Persona(
+            "Media Book Review",
+            "New York Times Book Reviewer",
+            "Professional and insightful",
+            "Help guide readers toward good stories"
+    );
+}
+
+@Agent(description = "Generate a story based on user input and review it")
+public class WriteAndReviewAgent {
+
+    public record Story(String text) {}
+
+    public record ReviewedStory(
+            Story story,
+            String review,
+            Persona reviewer
+    ) implements HasContent, Timestamped {
+        // ... content formatting methods
+    }
+
+    @State
+    interface Stage {} // <2>
+
+    record Properties( // <3>
+            int storyWordCount,
+            int reviewWordCount
+    ) {}
+
+    private final Properties properties;
+
+    WriteAndReviewAgent(
+            @Value("${storyWordCount:100}") int storyWordCount,
+            @Value("${reviewWordCount:100}") int reviewWordCount
+    ) {
+        this.properties = new Properties(storyWordCount, reviewWordCount);
+    }
+
+    @Action
+    AssessStory craftStory(UserInput userInput, Ai ai) { // <4>
+        var draft = ai
+                .withLlm(LlmOptions.withAutoLlm().withTemperature(.7))
+                .withPromptContributor(Personas.WRITER)
+                .createObject(String.format("""
+                        Craft a short story in %d words or less.
+                        The story should be engaging and imaginative.
+                        Use the user's input as inspiration if possible.
+
+                        # User input
+                        %s
+                        """,
+                        properties.storyWordCount,
+                        userInput.getContent()
+                ).trim(), Story.class);
+        return new AssessStory(userInput, draft, properties); // <5>
+    }
+
+    record HumanFeedback(String comments) {} // <6>
+
+    private record AssessmentOfHumanFeedback(boolean acceptable) {}
+
+    @State
+    record AssessStory(UserInput userInput, Story story, Properties properties) implements Stage {
+
+        @Action
+        HumanFeedback getFeedback() { // <7>
+            return WaitFor.formSubmission("""
+                    Please provide feedback on the story
+                    %s
+                    """.formatted(story.text),
+                    HumanFeedback.class);
+        }
+
+        @Action(clearBlackboard = true)  // <8>
+        Stage assess(HumanFeedback feedback, Ai ai) {
+            var assessment = ai.withDefaultLlm().createObject("""
+                    Based on the following human feedback, determine if the story is acceptable.
+                    Return true if the story is acceptable, false otherwise.
+
+                    # Story
+                    %s
+
+                    # Human feedback
+                    %s
+                    """.formatted(story.text(), feedback.comments),
+                    AssessmentOfHumanFeedback.class);
+            if (assessment.acceptable) {
+                return new Done(userInput, story, properties); // <9>
+            } else {
+                return new ReviseStory(userInput, story, feedback, properties); // <10>
+            }
+        }
+    }
+
+    @State
+    record ReviseStory(UserInput userInput, Story story, HumanFeedback humanFeedback,
+                       Properties properties) implements Stage {
+
+        @Action(clearBlackboard = true)  // <11>
+        AssessStory reviseStory(Ai ai) {
+            var draft = ai
+                    .withLlm(LlmOptions.withAutoLlm().withTemperature(.7))
+                    .withPromptContributor(Personas.WRITER)
+                    .createObject(String.format("""
+                            Revise a short story in %d words or less.
+                            Use the user's input as inspiration if possible.
+
+                            # User input
+                            %s
+
+                            # Previous story
+                            %s
+
+                            # Revision instructions
+                            %s
+                            """,
+                            properties.storyWordCount,
+                            userInput.getContent(),
+                            story.text(),
+                            humanFeedback.comments
+                    ).trim(), Story.class);
+            return new AssessStory(userInput, draft, properties); // <12>
+        }
+    }
+
+    @State
+    record Done(UserInput userInput, Story story, Properties properties) implements Stage {
+
+        @AchievesGoal( // <13>
+                description = "The story has been crafted and reviewed by a book reviewer",
+                export = @Export(remote = true, name = "writeAndReviewStory"))
+        @Action
+        ReviewedStory reviewStory(Ai ai) {
+            var review = ai
+                    .withAutoLlm()
+                    .withPromptContributor(Personas.REVIEWER)
+                    .generateText(String.format("""
+                            You will be given a short story to review.
+                            Review it in %d words or less.
+                            Consider whether the story is engaging, imaginative, and well-written.
+
+                            # Story
+                            %s
+
+                            # User input that inspired the story
+                            %s
+                            """,
+                            properties.reviewWordCount,
+                            story.text(),
+                            userInput.getContent()
+                    ).trim());
+            return new ReviewedStory(story, review, Personas.REVIEWER);
+        }
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+object Personas { // <1>
+    val WRITER: RoleGoalBackstory = RoleGoalBackstory
+        .withRole("Creative Storyteller")
+        .andGoal("Write engaging and imaginative stories")
+        .andBackstory("Has a PhD in French literature; used to work in a circus")
+
+    val REVIEWER: Persona = Persona(
+        "Media Book Review",
+        "New York Times Book Reviewer",
+        "Professional and insightful",
+        "Help guide readers toward good stories"
+    )
+}
+
+@Agent(description = "Generate a story based on user input and review it")
+class WriteAndReviewAgent(
+    @Value("\${storyWordCount:100}") storyWordCount: Int,
+    @Value("\${reviewWordCount:100}") reviewWordCount: Int
+) {
+    data class Story(val text: String)
+
+    data class ReviewedStory(
+        val story: Story,
+        val review: String,
+        val reviewer: Persona
+    ) : HasContent, Timestamped {
+        // ... content formatting methods
+    }
+
+    @State
+    interface Stage // <2>
+
+    data class Properties( // <3>
+        val storyWordCount: Int,
+        val reviewWordCount: Int
+    )
+
+    private val properties = Properties(storyWordCount, reviewWordCount)
+
+    @Action
+    fun craftStory(userInput: UserInput, ai: Ai): AssessStory { // <4>
+        val draft = ai
+            .withLlm(LlmOptions.withAutoLlm().withTemperature(.7))
+            .withPromptContributor(Personas.WRITER)
+            .createObject("""
+                Craft a short story in ${properties.storyWordCount} words or less.
+                The story should be engaging and imaginative.
+                Use the user's input as inspiration if possible.
+
+                # User input
+                ${userInput.content}
+                """.trimIndent(), Story::class.java)
+        return AssessStory(userInput, draft, properties) // <5>
+    }
+
+    data class HumanFeedback(val comments: String) // <6>
+
+    private data class AssessmentOfHumanFeedback(val acceptable: Boolean)
+}
+
+@State
+data class AssessStory(
+    val userInput: UserInput,
+    val story: WriteAndReviewAgent.Story,
+    val properties: WriteAndReviewAgent.Properties
+) : WriteAndReviewAgent.Stage {
+
+    @Action
+    fun getFeedback(): WriteAndReviewAgent.HumanFeedback { // <7>
+        return WaitFor.formSubmission("""
+            Please provide feedback on the story
+            ${story.text}
+            """.trimIndent(),
+            WriteAndReviewAgent.HumanFeedback::class.java)
+    }
+
+    @Action(clearBlackboard = true)  // <8>
+    fun assess(feedback: WriteAndReviewAgent.HumanFeedback, ai: Ai): WriteAndReviewAgent.Stage {
+        val assessment = ai.withDefaultLlm().createObject("""
+            Based on the following human feedback, determine if the story is acceptable.
+            Return true if the story is acceptable, false otherwise.
+
+            # Story
+            ${story.text}
+
+            # Human feedback
+            ${feedback.comments}
+            """.trimIndent(),
+            AssessmentOfHumanFeedback::class.java)
+        return if (assessment.acceptable) {
+            Done(userInput, story, properties) // <9>
+        } else {
+            ReviseStory(userInput, story, feedback, properties) // <10>
+        }
+    }
+}
+
+@State
+data class ReviseStory(
+    val userInput: UserInput,
+    val story: WriteAndReviewAgent.Story,
+    val humanFeedback: WriteAndReviewAgent.HumanFeedback,
+    val properties: WriteAndReviewAgent.Properties
+) : WriteAndReviewAgent.Stage {
+
+    @Action(clearBlackboard = true)  // <11>
+    fun reviseStory(ai: Ai): AssessStory {
+        val draft = ai
+            .withLlm(LlmOptions.withAutoLlm().withTemperature(.7))
+            .withPromptContributor(Personas.WRITER)
+            .createObject("""
+                Revise a short story in ${properties.storyWordCount} words or less.
+                Use the user's input as inspiration if possible.
+
+                # User input
+                ${userInput.content}
+
+                # Previous story
+                ${story.text}
+
+                # Revision instructions
+                ${humanFeedback.comments}
+                """.trimIndent(), WriteAndReviewAgent.Story::class.java)
+        return AssessStory(userInput, draft, properties) // <12>
+    }
+}
+
+@State
+data class Done(
+    val userInput: UserInput,
+    val story: WriteAndReviewAgent.Story,
+    val properties: WriteAndReviewAgent.Properties
+) : WriteAndReviewAgent.Stage {
+
+    @AchievesGoal( // <13>
+        description = "The story has been crafted and reviewed by a book reviewer",
+        export = Export(remote = true, name = "writeAndReviewStory"))
+    @Action
+    fun reviewStory(ai: Ai): WriteAndReviewAgent.ReviewedStory {
+        val review = ai
+            .withAutoLlm()
+            .withPromptContributor(Personas.REVIEWER)
+            .generateText("""
+                You will be given a short story to review.
+                Review it in ${properties.reviewWordCount} words or less.
+                Consider whether the story is engaging, imaginative, and well-written.
+
+                # Story
+                ${story.text}
+
+                # User input that inspired the story
+                ${userInput.content}
+                """.trimIndent())
+        return WriteAndReviewAgent.ReviewedStory(story, review, Personas.REVIEWER)
+    }
+}
+----
+====
+
+<1> **Personas**: Reusable prompt contributors that give the LLM context about its role
+<2> **Parent state interface**: Allows actions to return any implementing state dynamically
+<3> **Properties record**: Configuration bundled together for easy passing through states
+<4> **Entry action**: Uses LLM to generate initial story draft
+<5> **State transition**: Returns `AssessStory` with all necessary data
+<6> **HITL data type**: Simple record/data class to capture human feedback
+<7> **WaitFor integration**: Pauses execution and waits for user to submit feedback form
+<8> **Looping action**: `clearBlackboard = true` enables returning to a previously-visited state type
+<9> **Terminal branch**: If acceptable, transitions to `Done` state
+<10> **Loop branch**: If not acceptable, transitions to `ReviseStory` with the feedback
+<11> **Looping action**: `clearBlackboard = true` enables looping back to `AssessStory`
+<12> **Loop back**: Returns new `AssessStory` for another round of feedback
+<13> **Goal achievement**: Final action that produces the reviewed story and exports it
+
+==== Execution Flow
+
+The execution flow for this agent:
+
+1. **`craftStory`** executes with LLM, returns `AssessStory` -> enters `AssessStory` state
+2. **`getFeedback`** calls `WaitFor.formSubmission()` -> agent pauses, waits for user input
+3. User submits feedback -> `HumanFeedback` added to blackboard
+4. **`assess`** executes with LLM to interpret feedback:
+   - If acceptable: returns `Done` -> blackboard cleared, enters `Done` state
+   - If not acceptable: returns `ReviseStory` -> blackboard cleared, enters `ReviseStory` state
+5. If in `ReviseStory`: **`reviseStory`** executes with LLM, returns `AssessStory` -> blackboard cleared, loop back to step 2
+6. When in `Done`: **`reviewStory`** executes with LLM, returns `ReviewedStory` -> goal achieved
+
+The planner handles all transitions automatically, including loops.
+The looping actions (`assess` and `reviseStory`) use `clearBlackboard = true` to enable returning to previously-visited state types.
+
+==== Human-in-the-Loop with WaitFor
+
+The `WaitFor.formSubmission()` method is key for human-in-the-loop workflows:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Action
+HumanFeedback getFeedback() {
+    return WaitFor.formSubmission("""
+            Please provide feedback on the story
+            %s
+            """.formatted(story.text),
+            HumanFeedback.class);
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Action
+fun getFeedback(): HumanFeedback {
+    return WaitFor.formSubmission("""
+        Please provide feedback on the story
+        ${story.text}
+        """.trimIndent(),
+        HumanFeedback::class.java)
+}
+----
+====
+
+When this action executes:
+
+1. The agent process enters a `WAITING` state
+2. A form is generated based on the `HumanFeedback` record structure
+3. The user sees the prompt and fills out the form
+4. Upon submission, the `HumanFeedback` instance is created and added to the blackboard
+5. The agent resumes execution with the feedback available
+
+This integrates naturally with the state pattern: the feedback stays within the current state until the next state transition.
+
+==== Passing Data Through States
+
+When using `clearBlackboard = true` for looping states, all necessary context must be passed through state records since the blackboard is cleared:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@State
+record AssessStory(
+    UserInput userInput,    // Original user request
+    Story story,            // Current story draft
+    Properties properties   // Configuration
+) implements Stage { ... }
+
+@State
+record ReviseStory(
+    UserInput userInput,
+    Story story,
+    HumanFeedback humanFeedback,  // Additional context for revision
+    Properties properties
+) implements Stage { ... }
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@State
+data class AssessStory(
+    val userInput: UserInput,    // Original user request
+    val story: Story,            // Current story draft
+    val properties: Properties   // Configuration
+) : Stage { ... }
+
+@State
+data class ReviseStory(
+    val userInput: UserInput,
+    val story: Story,
+    val humanFeedback: HumanFeedback,  // Additional context for revision
+    val properties: Properties
+) : Stage { ... }
+----
+====
+
+TIP: Use a `Properties` record/data class to bundle configuration values that need to pass through multiple states, rather than repeating individual fields.
+
+NOTE: For non-looping state transitions (where `clearBlackboard` is not used), the blackboard is preserved, and data can be accessed from the blackboard directly.
+This is useful when states need access to shared context like user identity or conversation history.
+
+==== State Class Requirements
+
+IMPORTANT: State classes **must be** either **static nested classes** (Java) or **top-level classes** (Kotlin).
+Non-static inner classes are **not allowed** because they hold a reference to their enclosing instance, causing serialization and persistence issues.
+The framework will throw an `IllegalStateException` if it detects a non-static inner class annotated with `@State`.
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// GOOD: Static nested class (Java record is implicitly static)
+@State
+record AssessStory(UserInput userInput, Story story) implements Stage { ... }
+
+// GOOD: Top-level class
+@State
+record ProcessingState(String data) { ... }
+
+// BAD: Non-static inner class - will throw IllegalStateException
+@State
+class AssessStory implements Stage { ... } // Inner class in non-static context
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// GOOD: Top-level data class
+@State
+data class AssessStory(val userInput: UserInput, val story: Story) : Stage { ... }
+
+// GOOD: Top-level data class
+@State
+data class ProcessingState(val data: String) { ... }
+
+// BAD: Inner class inside another class - will throw IllegalStateException
+class MyAgent {
+    @State
+    inner class AssessStory : Stage { ... } // Inner class holds reference to outer
+}
+----
+====
+
+In Java, records declared inside a class are implicitly static, making them ideal for state classes.
+In Kotlin, data classes declared inside a class are inner by default; use **top-level declarations** instead.
+
+TIP: Top-level state classes are the recommended pattern for Kotlin.
+They can access the enclosing component via the `@Provided` annotation.
+See xref:reference.annotations[The @Provided Annotation] for full documentation.
+
+==== Key Points
+
+- Annotate state classes with `@State` (or inherit from a `@State`-annotated type)
+- `@State` is inherited through class hierarchies - annotate only the base type
+- Use **static nested classes** (Java records) or **top-level classes** to avoid persistence issues
+- Use a parent interface for polymorphic state returns
+- State actions are automatically discovered and registered
+- **State scoping**: When entering a new state, previous states are hidden - only current state's actions are available
+- **Context is preserved**: Non-state objects (user data, conversation, etc.) remain available across transitions
+- **Blackboard preserved**: State transitions hide previous states but preserve all other blackboard contents
+- **Staying in state**: Return `this` with `canRerun = true` to stay in the current state without transitioning
+- For **looping states**, use `@Action(clearBlackboard = true)` to enable returning to previously-visited state types
+- When using `clearBlackboard = true`, pass all necessary data through state record fields
+- Goals are defined with `@AchievesGoal` on terminal state actions
+- Use `WaitFor` for human-in-the-loop interactions within states
+- Within a state, normal GOAP planning applies to sequence actions

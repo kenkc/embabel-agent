@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,13 +27,13 @@ import com.embabel.agent.core.AgentProcessStatusCode;
 import com.embabel.agent.core.ProcessOptions;
 import com.embabel.agent.core.Verbosity;
 import com.embabel.agent.domain.io.UserInput;
-import com.embabel.agent.testing.integration.IntegrationTestUtils;
+import com.embabel.agent.test.integration.IntegrationTestUtils;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-import static com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentPlatform;
+import static com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentPlatform;
 import static org.junit.jupiter.api.Assertions.*;
 
 class RepeatUntilBuilderTest {
@@ -64,7 +64,7 @@ class RepeatUntilBuilderTest {
     void testNoExportedActionsFromWorkflow() {
         var agent = RepeatUntilBuilder
                 .returning(Report.class)
-                .withInput(Person.class)
+                .consuming(Person.class)
                 .withMaxIterations(3)
                 .repeating(
                         tac -> {
@@ -131,11 +131,13 @@ class RepeatUntilBuilderTest {
                     .withMaxIterations(3)
                     .repeating(
                             tac -> {
-                                return new Report("thing-" + tac.getInput().attempts().size());
+                                var history = tac.getAttemptHistory();
+                                return new Report("thing-" + (history != null ? history.attempts().size() : 0));
                             })
                     .withEvaluator(
                             ctx -> {
-                                assertNotNull(ctx.getInput().resultToEvaluate(),
+                                var history = ctx.getAttemptHistory();
+                                assertNotNull(history != null ? history.resultToEvaluate() : null,
                                         "Last result must be available to evaluator");
                                 return new TextFeedback(0.5, "feedback");
                             })
@@ -145,9 +147,8 @@ class RepeatUntilBuilderTest {
             var ap = IntegrationTestUtils.dummyAgentPlatform();
             var result = ap.runAgentFrom(
                     agent,
-                    ProcessOptions.builder()
-                            .verbosity(Verbosity.builder().showPlanning(true).build())
-                            .build(),
+                    ProcessOptions.DEFAULT
+                            .withVerbosity(new Verbosity(false, false, false, true)),
                     Map.of("it", new UserInput("input"))
             );
             assertEquals(AgentProcessStatusCode.COMPLETED, result.getStatus());
@@ -209,6 +210,49 @@ class RepeatUntilBuilderTest {
     @Nested
     class Consumer {
 
+        com.embabel.agent.core.Agent takesPerson = RepeatUntilBuilder
+                .returning(Report.class)
+                .consuming(Person.class)
+                .withMaxIterations(3)
+                .repeating(
+                        tac -> {
+                            var person = tac.getInput();
+                            assertNotNull(person, "Person must be provided as input");
+                            var history = tac.getHistory();
+                            if (tac.getHistory().attemptCount() > 0) {
+                                assertNotNull(tac.lastAttempt(), "Last attempt must be available");
+                            }
+                            assertNotNull(history, "History must be provided as input");
+                            return new Report(person.name + " " + person.age);
+                        })
+                .until(f -> f.getHistory().attemptCount() > 2)
+                .buildAgent("foo", "bar");
+
+        @Test
+        void terminatesItselfAgentRequiresInput() {
+            var agent = takesPerson;
+            var agentPlatform = IntegrationTestUtils.dummyAgentPlatform();
+            var agentProcess = agentPlatform.runAgentFrom(
+                    agent,
+                    ProcessOptions.DEFAULT,
+                    Map.of("it", new UserInput("input"))
+            );
+            assertEquals(AgentProcessStatusCode.STUCK, agentProcess.getStatus(),
+                    "Expected stuckness due to missing Person input");
+        }
+
+        @Test
+        void terminatesItselfAgentWithInput() {
+            var agent = takesPerson;
+            var agentPlatform = IntegrationTestUtils.dummyAgentPlatform();
+            var agentProcess = agentPlatform.runAgentFrom(
+                    agent,
+                    ProcessOptions.DEFAULT,
+                    Map.of("it", new Person("greg", 50))
+            );
+            assertEquals(AgentProcessStatusCode.COMPLETED, agentProcess.getStatus(),
+                    "Expected completion with Person input");
+        }
 
         @Test
         void terminatesItselfRequiresInput() {
@@ -242,7 +286,7 @@ class RepeatUntilBuilderTest {
         void terminatesItselfWithInput() {
             var agent = RepeatUntilBuilder
                     .returning(Report.class)
-                    .withInput(Person.class)
+                    .consuming(Person.class)
                     .withMaxIterations(3)
                     .repeating(
                             tac -> {
@@ -272,7 +316,7 @@ class RepeatUntilBuilderTest {
             public Report report(UserInput userInput, ActionContext context) {
                 return RepeatUntilBuilder
                         .returning(Report.class)
-                        .withInput(Person.class)
+                        .consuming(Person.class)
                         .withMaxIterations(3)
                         .repeating(
                                 tac -> {
@@ -294,11 +338,11 @@ class RepeatUntilBuilderTest {
             public Report report(UserInput userInput, Person definesDependency, ActionContext context) {
                 return RepeatUntilBuilder
                         .returning(Report.class)
-                        .withInput(Person.class)
+                        .consuming(Person.class)
                         .withMaxIterations(3)
                         .repeating(
                                 tac -> {
-                                    var person = tac.last(Person.class);
+                                    var person = tac.getInput();
                                     assertNotNull(person, "Person must be provided as input");
                                     return new Report(person.name + " " + person.age);
                                 })
@@ -308,5 +352,87 @@ class RepeatUntilBuilderTest {
 
         }
 
+    }
+
+    @Nested
+    class EdgeCases {
+
+        @Test
+        void maxIterationsIsRespected() {
+            final int[] callCount = {0};
+            var agent = RepeatUntilBuilder
+                    .returning(Report.class)
+                    .withMaxIterations(3)
+                    .repeating(
+                            tac -> {
+                                callCount[0]++;
+                                return new Report("attempt-" + callCount[0]);
+                            })
+                    .until(ctx -> false) // Never accept, should hit max iterations
+                    .buildAgent("maxIterTest", "Test max iterations");
+
+            var ap = IntegrationTestUtils.dummyAgentPlatform();
+            var result = ap.runAgentFrom(
+                    agent,
+                    ProcessOptions.DEFAULT,
+                    Map.of("it", new UserInput("input"))
+            );
+
+            assertEquals(AgentProcessStatusCode.COMPLETED, result.getStatus());
+            assertEquals(3, callCount[0], "Should have been called exactly maxIterations times");
+        }
+
+        @Test
+        void historyTracksAllAttempts() {
+            final int[] callCount = {0};
+            var agent = RepeatUntilBuilder
+                    .returning(Report.class)
+                    .withMaxIterations(5)
+                    .repeating(
+                            tac -> {
+                                callCount[0]++;
+                                var history = tac.getHistory();
+                                assertEquals(callCount[0] - 1, history.attemptCount(),
+                                        "History should have previous attempts");
+                                return new Report("attempt-" + callCount[0]);
+                            })
+                    .until(ctx -> ctx.getHistory().attemptCount() >= 3)
+                    .buildAgent("historyTest", "Test history tracking");
+
+            var ap = IntegrationTestUtils.dummyAgentPlatform();
+            var result = ap.runAgentFrom(
+                    agent,
+                    ProcessOptions.DEFAULT,
+                    Map.of("it", new UserInput("input"))
+            );
+
+            assertEquals(AgentProcessStatusCode.COMPLETED, result.getStatus());
+            assertEquals(3, callCount[0], "Should have been called 3 times");
+        }
+
+        @Test
+        void acceptsOnFirstAttempt() {
+            final int[] callCount = {0};
+            var agent = RepeatUntilBuilder
+                    .returning(Report.class)
+                    .withMaxIterations(5)
+                    .repeating(
+                            tac -> {
+                                callCount[0]++;
+                                return new Report("attempt-" + callCount[0]);
+                            })
+                    .until(ctx -> true) // Accept immediately
+                    .buildAgent("immediateAcceptTest", "Test immediate acceptance");
+
+            var ap = IntegrationTestUtils.dummyAgentPlatform();
+            var result = ap.runAgentFrom(
+                    agent,
+                    ProcessOptions.DEFAULT,
+                    Map.of("it", new UserInput("input"))
+            );
+
+            assertEquals(AgentProcessStatusCode.COMPLETED, result.getStatus());
+            assertEquals(1, callCount[0], "Should have been called exactly once");
+        }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ package com.embabel.agent.core.support
  * backed by a map.
  */
 import com.embabel.agent.core.Blackboard
+import com.embabel.agent.spi.BlackboardProvider
 import com.embabel.common.util.indent
 import com.embabel.common.util.indentLines
 import java.util.*
@@ -31,6 +32,8 @@ class InMemoryBlackboard(
 
     private val _map: MutableMap<String, Any> = ConcurrentHashMap()
     private val _entries: MutableList<Any> = Collections.synchronizedList(mutableListOf())
+    private val hiddens: MutableSet<Any> = Collections.synchronizedSet(mutableSetOf())
+    private val protectedKeys: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
 
     override fun spawn(): Blackboard {
         return InMemoryBlackboard().apply {
@@ -38,15 +41,45 @@ class InMemoryBlackboard(
             synchronized(_entries) {
                 _entries.addAll(this@InMemoryBlackboard._entries)
             }
+            protectedKeys.addAll(this@InMemoryBlackboard.protectedKeys)
         }
     }
 
-    override val objects: List<Any>
-        get() = synchronized(_entries) {
-            _entries.toList() // Return a snapshot to avoid concurrent modification
+    override fun clear() {
+        // Preserve protected bindings and their values
+        val protectedValues = protectedKeys.mapNotNull { _map[it] }.toSet()
+
+        // Clear non-protected map entries
+        val keysToRemove = _map.keys - protectedKeys
+        keysToRemove.forEach { _map.remove(it) }
+
+        // Clear non-protected entries from the list
+        synchronized(_entries) {
+            _entries.removeIf { it !in protectedValues }
         }
 
-    override fun get(name: String): Any? = _map[name]
+        // Clear hiddens that aren't protected values
+        hiddens.removeIf { it !in protectedValues }
+    }
+
+    override fun hide(what: Any) {
+        hiddens += what
+    }
+
+    fun isHidden(what: Any): Boolean = hiddens.contains(what)
+
+    override val objects: List<Any>
+        get() = synchronized(_entries) {
+            (_entries - hiddens).toList() // Return a snapshot to avoid concurrent modification
+        }
+
+    override fun get(name: String): Any? {
+        val f = _map[name] ?: return null
+        if (isHidden(f)) {
+            return null
+        }
+        return f
+    }
 
     override fun bind(
         key: String,
@@ -55,6 +88,14 @@ class InMemoryBlackboard(
         _map[key] = value
         _entries.add(value)
         return this
+    }
+
+    override fun bindProtected(
+        key: String,
+        value: Any,
+    ): Blackboard {
+        protectedKeys.add(key)
+        return bind(key, value)
     }
 
     override operator fun plusAssign(value: Any) {
@@ -72,17 +113,21 @@ class InMemoryBlackboard(
         bind(key, value)
     }
 
-    override fun getOrPut(
+    override fun <V : Any> getOrPut(
         name: String,
-        creator: () -> Any,
-    ): Any = _map.getOrPut(name, creator)
+        creator: () -> V,
+    ): V {
+        val entry = _map.getOrPut(name, creator)
+        return entry as V
+    }
 
     override fun setCondition(
         key: String,
         value: Boolean,
     ): Blackboard {
+        // Only store in _map, not in _entries. Conditions should not appear
+        // in the objects list or affect lastResult().
         _map[key] = value
-        _entries.add(value)
         return this
     }
 
@@ -95,7 +140,7 @@ class InMemoryBlackboard(
     }
 
     override fun expressionEvaluationModel(): Map<String, Any> {
-        return _map.toMap() // Return a snapshot copy
+        return _map.toMap()
     }
 
     override fun infoString(
@@ -116,4 +161,9 @@ class InMemoryBlackboard(
             .trimMargin()
             .indentLines(indent)
     }
+}
+
+object InMemoryBlackboardProvider : BlackboardProvider {
+
+    override fun createBlackboard(): Blackboard = InMemoryBlackboard()
 }

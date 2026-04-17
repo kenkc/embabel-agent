@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,14 +21,12 @@ import com.embabel.agent.a2a.server.support.EmbabelServerGoalsAgentCardHandler
 import com.embabel.agent.core.AgentPlatform
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.context.annotation.Profile
 
 /**
  * Expose AgentCardHandler objects.
  * Each will be exposed as an A2A endpoint with the path "a2a".
  */
 @Configuration
-@Profile("a2a")
 class A2AConfiguration {
 
     @Bean

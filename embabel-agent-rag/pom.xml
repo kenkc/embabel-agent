@@ -1,31 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.embabel.agent</groupId>
         <artifactId>embabel-agent-parent</artifactId>
-        <version>0.1.4-SNAPSHOT</version>
+        <version>0.4.0-SNAPSHOT</version>
     </parent>
     <artifactId>embabel-agent-rag</artifactId>
     <packaging>pom</packaging>
     <name>Embabel Agent Rag</name>
     <description>Embabel Agent Rag</description>
+    <url>https://github.com/embabel/embabel-agent</url>
+
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
 
     <modules>
-        <module>embabel-agent-rag-neo</module>
+        <module>embabel-agent-rag-core</module>
+        <module>embabel-agent-rag-pipeline</module>
         <module>embabel-agent-rag-lucene</module>
         <module>embabel-agent-rag-tika</module>
-        <module>embabel-agent-rag-pipeline</module>
     </modules>
 
     <dependencies>
         <!-- Main Dependencies -->
-        <dependency>
-            <groupId>com.embabel.common</groupId>
-            <artifactId>embabel-common-ai</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>com.embabel.agent</groupId>
             <artifactId>embabel-agent-api</artifactId>

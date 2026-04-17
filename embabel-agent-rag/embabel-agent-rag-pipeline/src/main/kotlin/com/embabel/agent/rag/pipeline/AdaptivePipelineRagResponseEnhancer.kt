@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,9 @@
 package com.embabel.agent.rag.pipeline
 
 import com.embabel.agent.event.RagEventListener
-import com.embabel.agent.rag.*
 import com.embabel.agent.rag.pipeline.event.EnhancementCompletedRagPipelineEvent
 import com.embabel.agent.rag.pipeline.event.EnhancementStartingRagPipelineEvent
+import com.embabel.agent.rag.service.*
 import org.slf4j.LoggerFactory
 
 /**
@@ -47,6 +47,8 @@ data class AdaptivePipelineRagResponseEnhancer @JvmOverloads constructor(
         var current = response
         val startTime = System.currentTimeMillis()
 
+        val desiredMaxLatency = response.request.hintOfType<DesiredMaxLatency>() ?: DesiredMaxLatency.UNBOUNDED
+
         for (enhancer in enhancers) {
             if (adaptiveExecution) {
                 val estimate = enhancer.estimateImpact(current)
@@ -59,12 +61,12 @@ data class AdaptivePipelineRagResponseEnhancer @JvmOverloads constructor(
                         continue
                     }
 
-                    elapsedMs > response.request.desiredMaxLatency.toMillis() -> {
+                    elapsedMs > desiredMaxLatency.duration.toMillis() -> {
                         logger.info(
                             "Skipping enhancer {} as elapsed time is {}ms with latency limit of {}ms",
                             estimate,
                             enhancer.name,
-                            response.request.desiredMaxLatency,
+                            desiredMaxLatency,
                         )
                         break
                     }

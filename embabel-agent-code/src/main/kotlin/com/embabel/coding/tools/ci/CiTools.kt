@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
  */
 package com.embabel.coding.tools.ci
 
-import com.embabel.agent.api.common.support.SelfToolCallbackPublisher
+import com.embabel.agent.api.annotation.LlmTool
+import com.embabel.agent.api.common.support.SelfToolPublisher
 import com.embabel.agent.tools.DirectoryBased
-import org.springframework.ai.tool.annotation.Tool
 
 /**
  * Interface for Continuous Integration tools that enable building and testing projects.
@@ -27,7 +27,7 @@ import org.springframework.ai.tool.annotation.Tool
  * allowing for seamless integration with various build tools like Maven, Gradle, npm, etc.
  *
  * This interface extends:
- * - [SelfToolCallbackPublisher]: Automatically publishes methods annotated with @Tool to be
+ * - [SelfToolPublisher]: Automatically publishes methods annotated with @Tool to be
  *   available as callable tools by the agent system. This enables the methods to be discovered
  *   and invoked through the tool callback mechanism.
  * - [DirectoryBased]: Provides access to the root directory on the host machine where the
@@ -36,12 +36,12 @@ import org.springframework.ai.tool.annotation.Tool
  * Implementations of this interface are expected to handle the execution of build commands
  * and process their output appropriately.
  *
- * @see SelfToolCallbackPublisher
+ * @see SelfToolPublisher
  * @see DirectoryBased
  * @see Ci
  * @see BuildOptions
  */
-interface CiTools : SelfToolCallbackPublisher, DirectoryBased {
+interface CiTools : SelfToolPublisher, DirectoryBased {
 
     /**
      * Builds the project using the specified command.
@@ -58,7 +58,7 @@ interface CiTools : SelfToolCallbackPublisher, DirectoryBased {
      * @return The output of the build process as a string, containing both stdout and stderr
      * @throws RuntimeException if the build process fails or cannot be executed
      */
-    @Tool(description = "build the project using the given command in the root")
+    @LlmTool(description = "build the project using the given command in the root")
     fun buildProject(command: String): String {
         return Ci(root).build(BuildOptions(command, true))
     }
@@ -77,7 +77,7 @@ interface CiTools : SelfToolCallbackPublisher, DirectoryBased {
      * @return A simple status message indicating success or failure
      * @throws RuntimeException if the build process fails or cannot be executed
      */
-    @Tool(description = "build the project with full terminal control for interactive applications like Spring Boot")
+    @LlmTool(description = "build the project with full terminal control for interactive applications like Spring Boot")
     fun buildProjectInteractive(command: String): String {
         return Ci(root).build(BuildOptions(command, streamOutput = false, interactive = true))
     }

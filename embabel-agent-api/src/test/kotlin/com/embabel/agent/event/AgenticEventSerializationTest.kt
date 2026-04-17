@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,16 @@
 package com.embabel.agent.event
 
 import com.embabel.agent.api.dsl.evenMoreEvilWizard
+import com.embabel.agent.api.event.*
 import com.embabel.agent.domain.io.UserInput
-import com.embabel.agent.testing.common.EventSavingAgenticEventListener
-import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentPlatform
+import com.embabel.agent.test.common.EventSavingAgenticEventListener
+import com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentPlatform
 import com.embabel.common.util.loggerFor
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -36,6 +38,9 @@ class AgenticEventSerializationTest {
     fun `test process events can be serialized`() {
         val om = jacksonObjectMapper().registerModule(JavaTimeModule())
         val fails = mutableListOf<String>()
+        var agentProcessPlanFormulatedEventString: String? = null
+        var agentProcessCompletedEventString: String? = null
+
         val serializingListener = object : AgenticEventListener {
             var count = 0
             override fun onProcessEvent(event: AgentProcessEvent) {
@@ -47,8 +52,11 @@ class AgenticEventSerializationTest {
                 loggerFor<AgenticEventSerializationTest>().info("Serialized event: $s")
                 when (event) {
                     is AgentProcessPlanFormulatedEvent -> {
-                        assertTrue(s.contains("\"plan\""), "Plan is required")
-                        assertTrue(s.contains("\"goal\""), "Goal is required")
+                        agentProcessPlanFormulatedEventString = s
+                    }
+
+                    is AgentProcessCompletedEvent -> {
+                        agentProcessCompletedEventString = s
                     }
 
                     else -> {
@@ -58,16 +66,39 @@ class AgenticEventSerializationTest {
                 assertTrue(s.contains("\"processId\""), "Process id is required")
             }
         }
+
         val saver = EventSavingAgenticEventListener()
         val ap = dummyAgentPlatform(listener = AgenticEventListener.of(saver, serializingListener))
         // If it doesn't die we're happy
-        ap.runAgentWithInput(evenMoreEvilWizard(), input = UserInput("anything at all"))
+        ap.runAgentFrom(
+            agent = evenMoreEvilWizard(),
+            bindings = mapOf("it" to UserInput("anything at all"))
+        )
         assertTrue(serializingListener.count > 0, "Events were serialized")
         assertEquals(0, fails.size, "Untyped events:\n${fails.joinToString(", ")}")
         assertTrue(
             saver.processEvents.filterIsInstance<ObjectBindingEvent>().isNotEmpty(),
             "Object binding events were emitted"
         )
+
+        assertNotNull(agentProcessPlanFormulatedEventString)
+        assertTrue(
+            agentProcessPlanFormulatedEventString.contains("\"plan\""),
+            "Plan is required in $agentProcessCompletedEventString"
+        )
+        assertTrue(
+            agentProcessPlanFormulatedEventString.contains("\"goal\""),
+            "Goal is required in $agentProcessCompletedEventString"
+        )
+        assertNotNull(agentProcessCompletedEventString)
+        assertTrue(
+            agentProcessCompletedEventString.contains("\"history\""),
+            "History is required in $agentProcessCompletedEventString"
+        )
+//        assertTrue(
+//            agentProcessCompletedEventString.contains("\"goal\""),
+//            "Goal is required in $agentProcessCompletedEventString"
+//        )
     }
 
     @Test

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@DisabledOnOs(OS.WINDOWS, disabledReason = "Windows file locking with Git pack files")
+@DisabledOnOs(value = [OS.WINDOWS, OS.LINUX], disabledReason = "File locking issues with Git pack files")
 class GitReferenceTest {
 
     private val repositoryReferenceProvider = RepositoryReferenceProvider()

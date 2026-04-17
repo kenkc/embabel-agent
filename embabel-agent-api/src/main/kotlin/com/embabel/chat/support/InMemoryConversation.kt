@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,33 +15,53 @@
  */
 package com.embabel.chat.support
 
+import com.embabel.chat.AssetTracker
 import com.embabel.chat.Conversation
 import com.embabel.chat.Message
 import com.embabel.common.core.MobyNameGenerator
 
-data class InMemoryConversation @JvmOverloads constructor(
-    private val _messages: MutableList<Message> = mutableListOf(),
+/**
+ * Simple in-memory implementation of [Conversation] for testing and ephemeral use cases.
+ */
+class InMemoryConversation private constructor(
     override val id: String = MobyNameGenerator.generateName(),
     private val persistent: Boolean = false,
+    private val _messages: MutableList<Message> = mutableListOf(),
+    override val assetTracker: AssetTracker = InMemoryAssetTracker(),
 ) : Conversation {
 
-    override fun addMessage(message: Message): Conversation {
+    @JvmOverloads
+    constructor(
+        messages: List<Message> = emptyList(),
+        id: String = MobyNameGenerator.generateName(),
+        persistent: Boolean = false,
+        assets: AssetTracker = InMemoryAssetTracker(),
+    ) : this(
+        id = id,
+        persistent = persistent,
+        _messages = messages.toMutableList(),
+        assetTracker = assets,
+    )
+
+    override fun addMessage(message: Message): Message {
         _messages += message
-        return this
+        return message
     }
 
     override val messages: List<Message>
-        get() = _messages
+        get() = _messages.toList()
 
     override fun persistent(): Boolean = persistent
 
-    companion object {
+    override fun last(n: Int): Conversation =
+        InMemoryConversation(
+            id = this.id,
+            persistent = false,
+            _messages = this._messages.takeLast(n).toMutableList(),
+            assetTracker = this.assetTracker,
+        )
 
-        fun of(
-            messages: List<Message>,
-        ): InMemoryConversation {
-            return InMemoryConversation(messages.toMutableList())
-        }
+    override fun toString(): String {
+        return "InMemoryConversation(id='$id', messages=${messages.size}, persistent=$persistent)"
     }
-
 }

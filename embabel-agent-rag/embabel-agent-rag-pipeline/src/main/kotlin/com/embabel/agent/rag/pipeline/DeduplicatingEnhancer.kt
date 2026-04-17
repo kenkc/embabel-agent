@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.embabel.agent.rag.pipeline
 
-import com.embabel.agent.rag.*
+import com.embabel.agent.rag.service.*
 
 object DeduplicatingEnhancer : RagResponseEnhancer {
 
@@ -34,7 +34,7 @@ object DeduplicatingEnhancer : RagResponseEnhancer {
         }
     }
 
-    override fun estimateImpact(response: RagResponse): EnhancementEstimate? {
+    override fun estimateImpact(response: RagResponse): EnhancementEstimate {
         return EnhancementEstimate(
             expectedQualityGain = 1.0,
             estimatedLatencyMs = 0L,

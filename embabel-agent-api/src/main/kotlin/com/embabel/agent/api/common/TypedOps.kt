@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -99,19 +99,6 @@ fun <I : Any, O : Any> TypedOps.transform(
         processOptions = processOptions,
     )
 }
-
-/**
- * Turn user input into this type
- */
-inline fun <reified O> TypedOps.handleUserInput(
-    intent: String,
-    processOptions: ProcessOptions = ProcessOptions(),
-): O =
-    handleUserInput(
-        intent = intent,
-        outputClass = O::class.java,
-        processOptions = processOptions,
-    )
 
 inline fun <I : Any, reified O> TypedOps.asFunction(
 ): AgentFunction<I, O> = asFunction(O::class.java)

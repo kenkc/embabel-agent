@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,17 @@
  */
 package com.embabel.agent.shell.config
 
-import com.embabel.chat.agent.ChatConfig
 import org.springframework.boot.context.properties.ConfigurationProperties
-import org.springframework.boot.context.properties.NestedConfigurationProperty
 
 @ConfigurationProperties(prefix = "embabel.agent.shell")
 class ShellProperties {
+
     var lineLength: Int = 140
-    @field:NestedConfigurationProperty
-    var chat: ChatConfig = ChatConfig()
+
+    /**
+     * If this is true we redirect all log output to a file
+     * when the user chats
+     */
+    var redirectLogToFile: Boolean = false
+
 }

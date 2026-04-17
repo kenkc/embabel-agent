@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.embabel.agent.shell
 
-import com.embabel.agent.event.logging.personality.character
+import com.embabel.agent.spi.logging.personality.character
 import com.embabel.common.util.MessageGenerator
 import com.embabel.common.util.color
 import org.jline.utils.AttributedString

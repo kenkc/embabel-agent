@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,25 @@
  */
 package com.embabel.agent.test.type
 
-import com.embabel.agent.api.annotation.*
-import com.embabel.agent.api.common.*
+import com.embabel.agent.api.annotation.AchievesGoal
+import com.embabel.agent.api.annotation.Action
+import com.embabel.agent.api.annotation.Agent
+import com.embabel.agent.api.annotation.Condition
+import com.embabel.agent.api.annotation.EmbabelComponent
+import com.embabel.agent.api.annotation.LlmTool
+import com.embabel.agent.api.annotation.RequireNameMatch
+import com.embabel.agent.api.common.ActionContext
+import com.embabel.agent.api.common.OperationContext
+import com.embabel.agent.api.common.SomeOf
+import com.embabel.agent.api.common.TransformationActionContext
+import com.embabel.agent.api.common.createObject
 import com.embabel.agent.api.dsl.chain
 import com.embabel.agent.api.dsl.runAgent
+import com.embabel.agent.api.tool.ToolObject
 import com.embabel.agent.core.Goal
 import com.embabel.agent.core.ProcessContext
 import com.embabel.agent.core.hitl.ConfirmationRequest
+import com.embabel.agent.core.hitl.waitFor
 import com.embabel.agent.domain.io.UserInput
 import com.embabel.agent.test.domain.Frog
 import com.embabel.agent.test.dsl.SnakeMeal
@@ -30,9 +42,14 @@ import com.embabel.common.ai.model.LlmOptions
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import org.springframework.ai.tool.annotation.Tool
 
+/**
+ * A prompt used by classes [FromPersonUsesDomainObjectTools], [FromPersonUsesObjectToolsViaContext], [FromPersonUsesObjectToolsViaUsing] and [FromPersonUsesDomainObjectToolsViaContext].
+ */
+private const val CREATE_A_USER_INPUT = "Create a UserInput"
+
 data class PersonWithReverseTool(val name: String) {
 
-    @Tool
+    @LlmTool(description = "reverses the person's name")
     fun reverse() = name.reversed()
 
 }
@@ -47,20 +64,20 @@ open class Animal(
 class Dog(name: String) : Animal(name)
 
 
-@AgentCapabilities
+@EmbabelComponent
 class NoMethods
 
-@AgentCapabilities
+@EmbabelComponent
 class OneGoalOnly {
 
     val thing1 = Goal.createInstance(
         name = "thing1",
         description = "Thanks to Dr Seuss",
         type = PersonWithReverseTool::class.java,
-    ).withValue(30.0)
+    ).withFixedValue(30.0)
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneGoalOnlyWithRichMetadata {
 
     val thing1 = Goal.createInstance(
@@ -69,10 +86,10 @@ class OneGoalOnlyWithRichMetadata {
         type = PersonWithReverseTool::class.java,
         tags = setOf("foo", "bar"),
         examples = setOf("make me happy"),
-    ).withValue(30.0)
+    ).withFixedValue(30.0)
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class TwoGoalsOnly {
 
     val thing1 = Goal.createInstance(
@@ -85,7 +102,7 @@ class TwoGoalsOnly {
     )
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ActionGoal {
 
     @Action
@@ -100,7 +117,7 @@ interface InterfaceWithNoDeser {
     val content: String
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class InvalidActionNoDeserializationInInterfaceGoal {
 
     @Action
@@ -120,7 +137,7 @@ data class MyInterfaceWithDeser(
     override val content: String,
 ) : InterfaceWithDeser
 
-@AgentCapabilities
+@EmbabelComponent
 class ValidActionWithDeserializationInInterfaceGoal {
 
     @Action
@@ -131,7 +148,7 @@ class ValidActionWithDeserializationInInterfaceGoal {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class TwoActionGoals {
 
     @Action
@@ -148,7 +165,7 @@ class TwoActionGoals {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class TwoActuallyNonConflictingActionGoalsWithSameOutput {
 
     @Action
@@ -165,7 +182,7 @@ class TwoActuallyNonConflictingActionGoalsWithSameOutput {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class TwoConflictingActionGoals {
 
     @Action
@@ -182,7 +199,7 @@ class TwoConflictingActionGoals {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class NoConditions {
 
     // A goal makes it legal
@@ -190,11 +207,11 @@ class NoConditions {
         name = "thing1",
         description = "Thanks to Dr Seuss",
         type = PersonWithReverseTool::class.java,
-    ).withValue(30.0)
+    ).withFixedValue(30.0)
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneOperationContextConditionOnly {
 
     @Condition(cost = .5)
@@ -204,7 +221,7 @@ class OneOperationContextConditionOnly {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ConditionFromBlackboard {
 
     @Condition
@@ -214,7 +231,7 @@ class ConditionFromBlackboard {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class CustomNameConditionFromBlackboard {
 
     @Condition(name = "condition1")
@@ -224,7 +241,7 @@ class CustomNameConditionFromBlackboard {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ConditionsFromBlackboard {
 
     @Condition
@@ -237,7 +254,7 @@ class ConditionsFromBlackboard {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionOnly {
 
     @Action(cost = 500.0)
@@ -247,7 +264,7 @@ class OneTransformerActionOnly {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionWithNullableParameter {
 
     @Action(cost = 500.0)
@@ -277,7 +294,7 @@ class InternalDomainClasses {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionTakingPayloadOnly {
 
     @Action(cost = 500.0)
@@ -290,7 +307,7 @@ class OneTransformerActionTakingPayloadOnly {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionTakingOperationPayload {
 
     @Action(cost = 500.0)
@@ -303,63 +320,12 @@ class OneTransformerActionTakingOperationPayload {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionReferencingConditionByName {
 
     @Action(pre = ["condition1"])
     fun toPerson(userInput: UserInput): PersonWithReverseTool {
         return PersonWithReverseTool(userInput.content)
-    }
-
-}
-
-@AgentCapabilities
-class OneTransformerActionWithCustomToolGroupOnly {
-
-    @Action(cost = 500.0, toolGroups = ["magic"])
-    fun toPerson(userInput: UserInput): PersonWithReverseTool {
-        return PersonWithReverseTool(userInput.content)
-    }
-
-}
-
-@Agent(description = "thing")
-class OneTransformerActionTakingInterfaceWithCustomToolGroupOnly {
-
-    @AchievesGoal(description = "Creating a frog")
-    @Action(cost = 500.0, toolGroups = ["magic"])
-    fun toPerson(person: PersonWithReverseTool): Frog {
-        return Frog(person.name)
-    }
-
-}
-
-@Agent(description = "thing")
-class OneTransformerActionTakingInterfaceWithExpectationCustomToolGroupOnly {
-
-    @AchievesGoal(description = "Creating a frog")
-    @Action(cost = 500.0, toolGroups = ["magic"])
-    fun toPerson(
-        person: PersonWithReverseTool,
-        context: OperationContext,
-    ): Frog {
-        val pr = context.promptRunner()
-        return Frog(person.name)
-    }
-
-}
-
-@Agent(description = "thing")
-class OneTransformerActionTakingInterfaceWithExpectationCustomToolGroupRequirementOnly {
-
-    @AchievesGoal(description = "Creating a frog")
-    @Action(cost = 500.0, toolGroups = ["frogs"], toolGroupRequirements = [ToolGroup("magic")])
-    fun toPerson(
-        person: PersonWithReverseTool,
-        context: OperationContext,
-    ): Frog {
-        val pr = context.promptRunner()
-        return Frog(person.name)
     }
 
 }
@@ -402,7 +368,7 @@ class AgentWithOneTransformerActionWith2ArgsOnly {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionWith2ArgsAndCustomInputBindings {
 
     @Action
@@ -415,7 +381,7 @@ class OneTransformerActionWith2ArgsAndCustomInputBindings {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionWith2ArgsAndCustomOutputBinding {
 
     @Action(outputBinding = "person")
@@ -428,7 +394,7 @@ class OneTransformerActionWith2ArgsAndCustomOutputBinding {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OnePromptActionOnly(
 ) {
 
@@ -446,7 +412,7 @@ class OnePromptActionOnly(
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class AwaitableOne(
 ) {
 
@@ -462,13 +428,13 @@ class AwaitableOne(
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class Combined {
 
     val planner = Goal.createInstance(
         description = "Create a person",
         type = PersonWithReverseTool::class.java,
-    ).withValue(30.0)
+    ).withFixedValue(30.0)
 
     // Can reuse this or inject
     val magicalLlm =
@@ -495,14 +461,14 @@ class Combined {
         ).createObject("Generated prompt for ${userInput.content}")
     }
 
-    @Tool
+    @LlmTool(description = "weather at location")
     fun weatherService(location: String) =
         "The weather in $location is ${listOf("sunny", "raining", "foggy").random()}"
 
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OnePromptActionWithToolOnly(
 ) {
 
@@ -515,14 +481,14 @@ class OnePromptActionWithToolOnly(
                 "Generated prompt for ${userInput.content}"
     }
 
-    @Tool
+    @LlmTool(description = "thing")
     fun thing(): String {
         return "foobar"
     }
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesDomainObjectTools {
 
     @Action
@@ -530,11 +496,11 @@ class FromPersonUsesDomainObjectTools {
         person: PersonWithReverseTool,
         context: OperationContext,
     ): UserInput {
-        return context.ai().withDefaultLlm().createObject("Create a UserInput")
+        return context.ai().withDefaultLlm().createObject(CREATE_A_USER_INPUT)
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesDomainObjectToolsViaContext {
 
     @Action
@@ -542,11 +508,11 @@ class FromPersonUsesDomainObjectToolsViaContext {
         person: PersonWithReverseTool,
         context: ActionContext,
     ): UserInput {
-        return context.promptRunner().createObject("Create a UserInput")
+        return context.promptRunner().createObject(CREATE_A_USER_INPUT)
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesObjectToolsViaUsing {
 
     @Action
@@ -554,11 +520,11 @@ class FromPersonUsesObjectToolsViaUsing {
         person: PersonWithReverseTool,
         context: ActionContext,
     ): UserInput {
-        return context.promptRunner(toolObjects = listOf(ToolObject(FunnyTool()))).createObject("Create a UserInput")
+        return context.promptRunner(toolObjects = listOf(ToolObject(FunnyTool()))).createObject(CREATE_A_USER_INPUT)
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesObjectToolsViaContext {
 
     @Action
@@ -566,18 +532,18 @@ class FromPersonUsesObjectToolsViaContext {
         person: PersonWithReverseTool,
         context: ActionContext,
     ): UserInput {
-        return context.promptRunner(toolObjects = listOf(ToolObject(FunnyTool()))).createObject("Create a UserInput")
+        return context.promptRunner(toolObjects = listOf(ToolObject(FunnyTool()))).createObject(CREATE_A_USER_INPUT)
     }
 }
 
 class FunnyTool {
-    @Tool
+    @LlmTool(description = "thing")
     fun thing(): String {
         return "foobar"
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionWith2Tools {
 
     @Action
@@ -588,15 +554,15 @@ class OneTransformerActionWith2Tools {
         return PersonWithReverseTool(userInput.content)
     }
 
-    @Tool
+    @LlmTool(description = "tool with no arg")
     fun toolWithoutArg(): String = "foo"
 
-    @Tool
+    @LlmTool(description = "tool with an argument")
     fun toolWithArg(location: String) = "bar"
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ToolMethodsOnDomainObject {
 
     @Action
@@ -624,7 +590,7 @@ class Wumpus(val name: String) {
     fun toolWithArg(location: String) = location
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ToolMethodsOnDomainObjects {
 
     @Action

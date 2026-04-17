@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,21 @@
  */
 package com.embabel.agent.shell
 
+import ch.qos.logback.classic.LoggerContext
+import ch.qos.logback.classic.encoder.PatternLayoutEncoder
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.Appender
+import ch.qos.logback.core.FileAppender
+import com.embabel.agent.api.channel.*
 import com.embabel.agent.api.common.autonomy.*
-import com.embabel.agent.channel.*
+import com.embabel.agent.core.AgentPlatform
 import com.embabel.agent.core.hitl.*
-import com.embabel.agent.event.logging.personality.ColorPalette
-import com.embabel.agent.event.logging.personality.DefaultColorPalette
 import com.embabel.agent.shell.config.ShellProperties
+import com.embabel.agent.spi.logging.ColorPalette
+import com.embabel.agent.spi.logging.DefaultColorPalette
+import com.embabel.chat.AssistantMessage
 import com.embabel.chat.ChatSession
+import com.embabel.chat.Message
 import com.embabel.chat.UserMessage
 import com.embabel.common.util.AnsiColor
 import com.embabel.common.util.color
@@ -33,7 +41,12 @@ import org.apache.commons.text.WordUtils
 import org.jline.reader.LineReader
 import org.jline.reader.LineReaderBuilder
 import org.jline.terminal.Terminal
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import java.nio.file.Files
+import java.nio.file.Paths
+import ch.qos.logback.classic.Logger as LogbackLogger
+
 
 /**
  * Provide interaction and form support
@@ -60,6 +73,9 @@ class TerminalServices(
         doWithLineReader { it.printAbove(what) }
     }
 
+    /**
+     * Run a chat session in the terminal
+     */
     @JvmOverloads
     fun chat(
         chatSession: ChatSession,
@@ -92,18 +108,18 @@ class TerminalServices(
      * Handle the process waiting exception request
      * @return null if the operation was cancelled by the user
      */
-    fun handleProcessWaitingException(processWaitingException: ProcessWaitingException): AwaitableResponse? {
-        val awaitableResponse = when (processWaitingException.awaitable) {
+    fun handleAwaitable(awaitable: Awaitable<*, *>): AwaitableResponse? {
+        val awaitableResponse = when (awaitable) {
             is ConfirmationRequest<*> -> {
-                confirmationResponseFromUserInput(processWaitingException.awaitable as ConfirmationRequest<*>)
+                confirmationResponseFromUserInput(awaitable)
             }
 
             is FormBindingRequest<*> -> {
-                formBindingResponseFromUserInput(processWaitingException.awaitable as FormBindingRequest<*>)
+                formBindingResponseFromUserInput(awaitable)
             }
 
             else -> {
-                TODO("Unhandled awaitable: ${processWaitingException.awaitable.infoString()}")
+                TODO("Unhandled awaitable: ${awaitable.infoString()}")
             }
         }
         return awaitableResponse
@@ -218,9 +234,11 @@ class TerminalServices(
 
     }
 
-    fun outputChannel(): OutputChannel = TerminalOutputChannel()
+    fun outputChannel(agentPlatform: AgentPlatform): OutputChannel =
+        TerminalOutputChannel(agentPlatform)
 
-    inner class TerminalOutputChannel(
+    private inner class TerminalOutputChannel(
+        private val agentPlatform: AgentPlatform,
         private val colorPalette: ColorPalette = DefaultColorPalette(),
     ) : OutputChannel {
 
@@ -228,10 +246,24 @@ class TerminalServices(
             when (event) {
                 is MessageOutputChannelEvent -> {
                     val formattedResponse = WordUtils.wrap(
-                        "${event.message.sender}: ${event.message.content.color(colorPalette.color2)}",
+                        "${event.message.role.displayName}: ${event.message.content.color(colorPalette.color2)}",
                         shellProperties.lineLength,
                     )
                     println(formattedResponse)
+                    val agentProcess = agentPlatform.getAgentProcess(event.processId)
+                        ?: throw IllegalStateException("Process not found: ${event.processId}")
+
+                    (event.message as? AssistantMessage)?.awaitable?.let { awaitable ->
+                        val awaitableResponse = handleAwaitable(awaitable)
+                        if (awaitableResponse == null) {
+                            TODO()
+                        }
+                        (awaitable as Awaitable<*, AwaitableResponse>).onResponse(
+                            response = awaitableResponse,
+                            agentProcess = agentProcess,
+                        )
+                        agentProcess.run()
+                    }
                 }
 
                 is ContentOutputChannelEvent -> {
@@ -250,6 +282,67 @@ class TerminalServices(
                     println(event.toString())
                 }
             }
+        }
+    }
+
+    /**
+     * Redirects all logging to a file and returns a function to restore the original logging configuration.
+     * This is useful during interactive chat sessions to prevent log output from interfering with the UI.
+     */
+    fun redirectLoggingToFile(
+        filename: String,
+        dir: String,
+    ): () -> Unit {
+        val loggerContext = LoggerFactory.getILoggerFactory() as LoggerContext
+        val rootLogger = loggerContext.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME) as LogbackLogger
+
+        // Store the current appenders to restore later
+        val originalAppenders = mutableMapOf<String, Appender<ILoggingEvent>>()
+        val appenderIterator = rootLogger.iteratorForAppenders()
+        while (appenderIterator.hasNext()) {
+            val appender = appenderIterator.next()
+            originalAppenders[appender.name] = appender
+            rootLogger.detachAppender(appender)
+        }
+
+        // Create a file appender for logs during chat
+        val logsDir = Paths.get(dir, "logs")
+        Files.createDirectories(logsDir)
+        val logFile = logsDir.resolve("$filename.log")
+
+        println("Redirecting logging during chat session to $logFile")
+
+        val fileAppender = FileAppender<ILoggingEvent>().apply {
+            context = loggerContext
+            name = filename
+            file = logFile.toString()
+
+            val encoder = PatternLayoutEncoder().apply {
+                context = loggerContext
+                pattern = "%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"
+                start()
+            }
+            this.encoder = encoder
+            start()
+        }
+
+        // Attach the file appender
+        rootLogger.addAppender(fileAppender)
+
+        loggerFor<TerminalServices>().info("Logs redirected to: $logFile")
+
+        // Return a function to restore the original logging configuration
+        return {
+            // Stop and detach the file appender
+            rootLogger.detachAppender(fileAppender)
+            fileAppender.stop()
+
+            // Re-attach the original appenders
+            originalAppenders.values.forEach { appender ->
+                rootLogger.addAppender(appender)
+            }
+
+            loggerFor<TerminalServices>().info("Logging to console restored. Logs are available at: $logFile")
         }
     }
 

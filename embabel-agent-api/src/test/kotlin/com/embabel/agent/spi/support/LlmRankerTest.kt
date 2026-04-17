@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 package com.embabel.agent.spi.support
 
 import com.embabel.agent.core.Goal
-import com.embabel.agent.spi.LlmOperations
+import com.embabel.agent.core.internal.LlmOperations
 import io.mockk.every
 import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertTrue

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  */
 package com.embabel.agent.spi
 
-import com.embabel.agent.event.ActionExecutionStartEvent
-import com.embabel.agent.event.ToolCallRequestEvent
+import com.embabel.agent.api.event.ActionExecutionStartEvent
+import com.embabel.agent.api.event.ToolCallRequestEvent
 import com.embabel.common.core.types.Timestamped
 import java.time.Duration
 import java.time.Instant

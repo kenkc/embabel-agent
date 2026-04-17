@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,12 +18,18 @@ package com.embabel.ux.form
 import java.time.LocalDate
 import java.time.LocalTime
 
-fun interface Validator {
-    fun validate(value: ControlValue, control: Control): ValidationResult
+fun interface FormValidator {
+    fun validate(
+        value: ControlValue,
+        control: Control,
+    ): ValidationResult
 }
 
-class RequiredValidator : Validator {
-    override fun validate(value: ControlValue, control: Control): ValidationResult {
+class RequiredFormValidator : FormValidator {
+    override fun validate(
+        value: ControlValue,
+        control: Control,
+    ): ValidationResult {
         val isEmpty = when (value) {
             is ControlValue.TextValue -> value.value.isBlank()
             is ControlValue.BooleanValue -> !value.value // For checkbox "required" means it must be checked
@@ -43,8 +49,14 @@ class RequiredValidator : Validator {
 }
 
 
-class PatternValidator(private val pattern: String, private val errorMessage: String) : Validator {
-    override fun validate(value: ControlValue, control: Control): ValidationResult {
+class PatternFormValidator(
+    private val pattern: String,
+    private val errorMessage: String,
+) : FormValidator {
+    override fun validate(
+        value: ControlValue,
+        control: Control,
+    ): ValidationResult {
         return when (value) {
             is ControlValue.TextValue -> {
                 if (value.value.matches(Regex(pattern))) {
@@ -59,9 +71,16 @@ class PatternValidator(private val pattern: String, private val errorMessage: St
     }
 }
 
-class DoubleRangeValidator(private val min: Double, private val max: Double, private val errorMessage: String) :
-    Validator {
-    override fun validate(value: ControlValue, control: Control): ValidationResult {
+class DoubleRangeFormValidator(
+    private val min: Double,
+    private val max: Double,
+    private val errorMessage: String,
+) :
+    FormValidator {
+    override fun validate(
+        value: ControlValue,
+        control: Control,
+    ): ValidationResult {
         return when (value) {
             is ControlValue.NumberValue -> {
                 if (value.value in min..max) {
@@ -76,8 +95,14 @@ class DoubleRangeValidator(private val min: Double, private val max: Double, pri
     }
 }
 
-class DropDownValidator(private val options: List<String>, private val errorMessage: String) : Validator {
-    override fun validate(value: ControlValue, control: Control): ValidationResult {
+class DropDownFormValidator(
+    private val options: List<String>,
+    private val errorMessage: String,
+) : FormValidator {
+    override fun validate(
+        value: ControlValue,
+        control: Control,
+    ): ValidationResult {
         return when (value) {
             is ControlValue.OptionValue -> {
                 if (options.contains(value.value)) {
@@ -94,7 +119,10 @@ class DropDownValidator(private val options: List<String>, private val errorMess
 
 class DefaultFormProcessor : FormProcessor {
 
-    override fun processSubmission(form: Form, submission: FormSubmission): FormSubmissionResult {
+    override fun processSubmission(
+        form: Form,
+        submission: FormSubmission,
+    ): FormSubmissionResult {
         require(form.id == submission.formId) {
             "Form ID in submission does not match the form ID"
         }
@@ -131,7 +159,10 @@ class DefaultFormProcessor : FormProcessor {
         )
     }
 
-    private fun convertToControlValue(value: Any?, control: Control): ControlValue {
+    private fun convertToControlValue(
+        value: Any?,
+        control: Control,
+    ): ControlValue {
         if (value == null) return ControlValue.EmptyValue
 
         return when (control) {
@@ -168,24 +199,29 @@ class DefaultFormProcessor : FormProcessor {
     }
 }
 
-private fun defaultValidatorsFor(form: Form): Map<String, List<Validator>> {
-    val validators = mutableMapOf<String, List<Validator>>()
+private fun defaultValidatorsFor(form: Form): Map<String, List<FormValidator>> {
+    val validators = mutableMapOf<String, List<FormValidator>>()
 
     form.controls.forEach { control ->
-        val controlValidators = mutableListOf<Validator>()
+        val controlFormValidators = mutableListOf<FormValidator>()
         if (control is RequirableControl && control.required) {
-            controlValidators += RequiredValidator()
+            controlFormValidators += RequiredFormValidator()
         }
         when (control) {
             is TextField -> {
                 if (control.validationPattern != null && control.validationMessage != null) {
-                    controlValidators.add(PatternValidator(control.validationPattern, control.validationMessage))
+                    controlFormValidators.add(
+                        PatternFormValidator(
+                            control.validationPattern,
+                            control.validationMessage
+                        )
+                    )
                 }
             }
 
             is Dropdown -> {
-                controlValidators.add(
-                    DropDownValidator(
+                controlFormValidators.add(
+                    DropDownFormValidator(
                         control.options.map { it.value },
                         "Value must be one of ${control.options.joinToString()}",
                     )
@@ -202,8 +238,8 @@ private fun defaultValidatorsFor(form: Form): Map<String, List<Validator>> {
             }
 
             is Slider -> {
-                controlValidators.add(
-                    DoubleRangeValidator(
+                controlFormValidators.add(
+                    DoubleRangeFormValidator(
                         control.min,
                         control.max,
                         "Value must be between ${control.min} and ${control.max}",
@@ -215,8 +251,8 @@ private fun defaultValidatorsFor(form: Form): Map<String, List<Validator>> {
             else -> {} // No validation for other controls
         }
 
-        if (controlValidators.isNotEmpty()) {
-            validators[control.id] = controlValidators
+        if (controlFormValidators.isNotEmpty()) {
+            validators[control.id] = controlFormValidators
         }
     }
     return validators

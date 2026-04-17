@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package com.embabel.plan.goap
 
+import com.embabel.plan.common.condition.ConditionDetermination
+import com.embabel.plan.common.condition.ConditionWorldState
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -25,7 +27,7 @@ class WorldStateTest {
     inner class Constructor {
         @Test
         fun `test constructor with empty map`() {
-            val worldState = GoapWorldState()
+            val worldState = ConditionWorldState()
             assertTrue(worldState.state.isEmpty())
         }
 
@@ -35,7 +37,7 @@ class WorldStateTest {
                 "condition1" to ConditionDetermination.TRUE,
                 "condition2" to ConditionDetermination.FALSE
             )
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             assertEquals(state, worldState.state)
         }
     }
@@ -45,7 +47,7 @@ class WorldStateTest {
 
         @Test
         fun `test unknownConditions with empty state`() {
-            val worldState = GoapWorldState()
+            val worldState = ConditionWorldState()
             assertTrue(worldState.unknownConditions().isEmpty())
         }
 
@@ -55,7 +57,7 @@ class WorldStateTest {
                 "condition1" to ConditionDetermination.TRUE,
                 "condition2" to ConditionDetermination.FALSE
             )
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             assertTrue(worldState.unknownConditions().isEmpty())
         }
 
@@ -67,7 +69,7 @@ class WorldStateTest {
                 "condition3" to ConditionDetermination.FALSE,
                 "condition4" to ConditionDetermination.UNKNOWN
             )
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val unknowns = worldState.unknownConditions()
             assertEquals(2, unknowns.size)
             assertTrue(unknowns.contains("condition2"))
@@ -84,7 +86,7 @@ class WorldStateTest {
                 "condition1" to ConditionDetermination.TRUE,
                 "condition2" to ConditionDetermination.UNKNOWN
             )
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val variants = worldState.variants("condition2")
 
             assertEquals(2, variants.size)
@@ -108,7 +110,7 @@ class WorldStateTest {
                 "condition1" to ConditionDetermination.TRUE,
                 "condition2" to ConditionDetermination.FALSE
             )
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val newWorldState = worldState + ("condition3" to ConditionDetermination.UNKNOWN)
 
             assertEquals(3, newWorldState.state.size)
@@ -123,7 +125,7 @@ class WorldStateTest {
                 "condition1" to ConditionDetermination.TRUE,
                 "condition2" to ConditionDetermination.FALSE
             )
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val newWorldState = worldState + ("condition1" to ConditionDetermination.UNKNOWN)
 
             assertEquals(2, newWorldState.state.size)
@@ -137,7 +139,7 @@ class WorldStateTest {
 
         @Test
         fun `test withOneChange with empty state`() {
-            val worldState = GoapWorldState()
+            val worldState = ConditionWorldState()
             val changes = worldState.withOneChange()
             assertTrue(changes.isEmpty())
         }
@@ -145,7 +147,7 @@ class WorldStateTest {
         @Test
         fun `test withOneChange with single TRUE condition`() {
             val state = mapOf("condition1" to ConditionDetermination.TRUE)
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val changes = worldState.withOneChange()
 
             assertEquals(2, changes.size)
@@ -160,7 +162,7 @@ class WorldStateTest {
         @Test
         fun `test withOneChange with single FALSE condition`() {
             val state = mapOf("condition1" to ConditionDetermination.FALSE)
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val changes = worldState.withOneChange()
 
             assertEquals(2, changes.size)
@@ -175,7 +177,7 @@ class WorldStateTest {
         @Test
         fun `test withOneChange with single UNKNOWN condition`() {
             val state = mapOf("condition1" to ConditionDetermination.UNKNOWN)
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val changes = worldState.withOneChange()
 
             assertEquals(2, changes.size)
@@ -202,12 +204,12 @@ class WorldStateTest {
 
         }
 
-        private fun oneChangeWithNConditions(n: Int): Collection<GoapWorldState> {
+        private fun oneChangeWithNConditions(n: Int): Collection<ConditionWorldState> {
             val state = mutableMapOf<String, ConditionDetermination>()
             for (i in 1..n) {
                 state["condition$i"] = ConditionDetermination.entries.toTypedArray().random()
             }
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val changes = worldState.withOneChange()
 
             return changes
@@ -220,7 +222,7 @@ class WorldStateTest {
                 "condition2" to ConditionDetermination.FALSE,
                 "condition3" to ConditionDetermination.UNKNOWN
             )
-            val worldState = GoapWorldState(state)
+            val worldState = ConditionWorldState(state)
             val changes = worldState.withOneChange()
 
             assertEquals(6, changes.size)  // 3 conditions, each with 2 alternate values

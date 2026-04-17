@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,15 +19,16 @@ import com.embabel.agent.api.annotation.AchievesGoal;
 import com.embabel.agent.api.annotation.Action;
 import com.embabel.agent.api.annotation.Agent;
 import com.embabel.agent.api.annotation.Condition;
+import com.embabel.agent.api.channel.DevNullOutputChannel;
 import com.embabel.agent.api.common.OperationContext;
 import com.embabel.agent.api.common.PlatformServices;
-import com.embabel.agent.channel.DevNullOutputChannel;
 import com.embabel.agent.core.ActionStatusCode;
 import com.embabel.agent.core.AgentProcessStatusCode;
 import com.embabel.agent.core.ProcessContext;
 import com.embabel.agent.core.ProcessOptions;
 import com.embabel.agent.core.support.InMemoryBlackboard;
 import com.embabel.agent.core.support.SimpleAgentProcess;
+import com.embabel.agent.spi.support.DefaultPlannerFactory;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -35,8 +36,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentPlatform;
-import static com.embabel.agent.testing.integration.IntegrationTestUtils.dummyPlatformServices;
+import static com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentPlatform;
+import static com.embabel.agent.test.integration.IntegrationTestUtils.dummyPlatformServices;
 import static com.embabel.common.core.types.Semver.DEFAULT_VERSION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -77,6 +78,7 @@ class PackageVisibleTests {
                         processOptions,
                         new InMemoryBlackboard(),
                         platformServices,
+                        DefaultPlannerFactory.INSTANCE,
                         Instant.now()
                 )
         );
@@ -109,6 +111,7 @@ class PackageVisibleTests {
                         processOptions,
                         new InMemoryBlackboard(),
                         platformServices,
+                        DefaultPlannerFactory.INSTANCE,
                         Instant.now()
                 )
         );

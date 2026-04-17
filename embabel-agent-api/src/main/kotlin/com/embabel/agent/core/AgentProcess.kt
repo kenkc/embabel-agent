@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.embabel.agent.core
 
-import com.embabel.agent.event.ProcessKilledEvent
+import com.embabel.agent.api.event.ProcessKilledEvent
 import com.embabel.common.core.types.HasInfoString
 import com.embabel.common.core.types.Timed
 import com.embabel.common.core.types.Timestamped
@@ -61,24 +61,51 @@ interface AgentProcess : Blackboard, Timestamped, Timed, OperationStatus<AgentPr
     LlmInvocationHistory {
 
     /**
-     * Unique id of this process
+     * Unique id of this process. Set on creation.
      */
     val id: String
 
+    /**
+     * The blackboard for this process.
+     * Implementations should delegate to it to implement the Blackboard interface for convenience,
+     * but explicitly separating it simplifies persistence.
+     */
+    val blackboard: Blackboard
+
+    /**
+     * ID of the parent AgentProcess, if any.
+     */
     val parentId: String?
+
+    /**
+     * True if this is a root process (no parent).
+     */
+    val isRootProcess: Boolean
+        get() = parentId == null
+
+    /**
+     * Options this process was started with
+     */
+    val processOptions: ProcessOptions
 
     /**
      * Get the planner for this process
      */
     val planner: Planner<*, *, *>
 
+    /**
+     * History of actions taken by this process
+     */
     val history: List<ActionInvocation>
 
     /**
-     * Goal of this process.
+     * Goal of this process. Utility processes may not have a goal.
      */
     val goal: com.embabel.plan.Goal?
 
+    /**
+     * Is the process finished, whether successfully or not?
+     */
     val finished: Boolean
         get() = status in setOf(
             AgentProcessStatusCode.COMPLETED,
@@ -102,6 +129,25 @@ interface AgentProcess : Blackboard, Timestamped, Timed, OperationStatus<AgentPr
      * Kill this process and return an event describing the kill if we are successful
      */
     fun kill(): ProcessKilledEvent?
+
+    /**
+     * Request graceful termination of the entire agent process.
+     * The agent will terminate at the next natural checkpoint (before next tick).
+     *
+     * @param reason Human-readable explanation for termination
+     * @see com.embabel.agent.api.tool.TerminateAgentException for immediate termination
+     */
+    fun terminateAgent(reason: String)
+
+    /**
+     * Request graceful termination of the current action only.
+     * The action will terminate at the next natural checkpoint (between tool calls),
+     * and the agent will continue with the next planned action.
+     *
+     * @param reason Human-readable explanation for termination
+     * @see com.embabel.agent.api.tool.TerminateActionException for immediate termination
+     */
+    fun terminateAction(reason: String)
 
     /**
      * If we failed, this may contain the reason for the failure.
@@ -155,28 +201,61 @@ interface AgentProcess : Blackboard, Timestamped, Timed, OperationStatus<AgentPr
         require(status == AgentProcessStatusCode.COMPLETED) {
             "Cannot get result of process that is not completed: Status=$status"
         }
-        return processContext.getValue(IoBinding.DEFAULT_BINDING, outputClass.simpleName) as O?
+        return getValue(IoBinding.DEFAULT_BINDING, outputClass.simpleName) as O?
             ?: error("No result of type ${outputClass.name} found in process status")
     }
+
+    /**
+     * Get a variable value. Handles "it" default type specially,
+     * because it could be an "it" of different variables, defined
+     * as the most recently added entry.
+     */
+    fun getValue(
+        variable: String,
+        type: String,
+    ): Any? =
+        blackboard.getValue(
+            variable = variable, type = type,
+            dataDictionary = agent,
+        )
 
     companion object {
         private val threadLocalAgentProcess = ThreadLocal<AgentProcess>()
 
+        @PublishedApi
         internal fun set(agentProcess: AgentProcess) {
             threadLocalAgentProcess.set(agentProcess)
         }
 
+        @PublishedApi
         internal fun remove() {
             threadLocalAgentProcess.remove()
         }
 
         /**
          * Get the current agent process for this thread, if any.
-         * This can only be relied on during tool calls.
          */
         @JvmStatic
         fun get(): AgentProcess? {
             return threadLocalAgentProcess.get()?.let { return it }
+        }
+
+        /**
+         * Execute a block with this AgentProcess as the current process for the thread.
+         * Properly saves and restores any previous value, ensuring cleanup even on exception.
+         */
+        inline fun <T> AgentProcess.withCurrent(block: () -> T): T {
+            val previous = get()
+            return try {
+                set(this)
+                block()
+            } finally {
+                if (previous != null) {
+                    set(previous)
+                } else {
+                    remove()
+                }
+            }
         }
 
     }

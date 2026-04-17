@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,37 +15,33 @@
  */
 package com.embabel.agent.shell
 
+import com.embabel.agent.api.common.Asyncer
 import com.embabel.agent.api.common.ToolsStats
 import com.embabel.agent.api.common.autonomy.*
+import com.embabel.agent.api.tool.ToolCallContext
 import com.embabel.agent.core.*
 import com.embabel.agent.domain.io.UserInput
-import com.embabel.agent.event.logging.LoggingPersonality
-import com.embabel.agent.event.logging.personality.ColorPalette
 import com.embabel.agent.shell.config.ShellProperties
-import com.embabel.chat.agent.*
-import com.embabel.chat.agent.shell.TerminalServicesProcessWaitingHandler
+import com.embabel.agent.spi.logging.ColorPalette
+import com.embabel.agent.spi.logging.LoggingPersonality
+import com.embabel.chat.Chatbot
+import com.embabel.chat.agent.AgentProcessChatbot
+import com.embabel.chat.agent.DefaultChatAgentBuilder
+import com.embabel.chat.agent.MARVIN
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.model.ModelProvider
 import com.embabel.common.util.bold
 import com.embabel.common.util.color
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.slf4j.Logger
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.SpringApplication
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.core.env.ConfigurableEnvironment
 import org.springframework.shell.standard.ShellComponent
 import org.springframework.shell.standard.ShellMethod
 import org.springframework.shell.standard.ShellOption
-import java.util.concurrent.CompletableFuture
 import kotlin.system.exitProcess
-
-/**
- * Shell configuration for the shell module (duplicate of API's ShellConfig for independence)
- */
-data class ShellConfig(
-    val lineLength: Int = 140,
-    val chat: ChatConfig = ChatConfig(),
-)
 
 
 /**
@@ -54,17 +50,20 @@ data class ShellConfig(
 @ShellComponent
 class ShellCommands(
     private val autonomy: Autonomy,
-    private val planLister: PlanLister,
+    private val asyncer: Asyncer,
     private val modelProvider: ModelProvider,
     private val terminalServices: TerminalServices,
     private val environment: ConfigurableEnvironment,
     private val objectMapper: ObjectMapper,
     private val colorPalette: ColorPalette,
-    private val loggingPersonality: LoggingPersonality,
+    loggingPersonality: LoggingPersonality,
     private val toolsStats: ToolsStats,
     private val context: ConfigurableApplicationContext,
     private val shellProperties: ShellProperties = ShellProperties(),
-) {
+    @param:Autowired(required = false)
+    private val chatbot: Chatbot? = null,
+
+    ) {
 
     private val logger: Logger = loggingPersonality.logger
 
@@ -79,6 +78,12 @@ class ShellCommands(
      */
     private var openMode: Boolean = false
 
+    /**
+     * Persistent tool call context, set via `set-context` command.
+     * Passed to all subsequent agent executions.
+     */
+    private var persistentToolCallContext: ToolCallContext = ToolCallContext.EMPTY
+
     private var defaultProcessOptions: ProcessOptions = ProcessOptions(
         verbosity = Verbosity(
             debug = false,
@@ -92,6 +97,38 @@ class ShellCommands(
     fun clear(): String {
         blackboard = null
         return "Blackboard cleared"
+    }
+
+    @ShellMethod(
+        value = "Set persistent tool call context as key=value pairs, passed to all tools during execution. " +
+                "Example: set-context tenantId=acme,apiKey=secret123",
+        key = ["set-context", "sc"],
+    )
+    fun setContext(
+        @ShellOption(
+            help = "Comma-separated key=value pairs (e.g. tenantId=acme,apiKey=secret). Use 'clear' to reset.",
+            defaultValue = "",
+        ) context: String,
+    ): String {
+        if (context.isBlank() || context == "clear") {
+            persistentToolCallContext = ToolCallContext.EMPTY
+            return "Tool call context cleared".color(colorPalette.color2)
+        }
+        persistentToolCallContext = parseToolCallContext(context)
+        return "Tool call context set: ${persistentToolCallContext.toMap()}".color(colorPalette.color2)
+    }
+
+    @ShellMethod(
+        value = "Show current tool call context",
+        key = ["show-context"],
+    )
+    fun showContext(): String {
+        val ctx = persistentToolCallContext.toMap()
+        return if (ctx.isEmpty()) {
+            "Tool call context is empty"
+        } else {
+            "Tool call context: $ctx"
+        }.color(colorPalette.color2)
     }
 
     @ShellMethod(value = "Show recent agent process runs. This is what actually happened, not just what was planned.")
@@ -109,43 +146,45 @@ class ShellCommands(
         return "Active profiles: ${profiles.joinToString()}"
     }
 
+    private fun createDefaultChatbot(): Chatbot {
+        val persona = MARVIN
+        logger.info("Creating default chatbot with persona {}", persona.name)
+        val chatAgent = DefaultChatAgentBuilder(
+            autonomy = autonomy,
+            llm = LlmOptions.withAutoLlm(),
+            persona = persona,
+        ).build()
+        return AgentProcessChatbot(
+            agentPlatform = agentPlatform,
+            agentSource = {
+                chatAgent
+            })
+    }
+
     @ShellMethod("Chat")
     fun chat(): String {
-        val processOptions = ProcessOptions(
-            verbosity = Verbosity(
-                debug = false,
-                showPrompts = true,
-                showLlmResponses = false,
-                showPlanning = true,
+
+        fun runChat(): String {
+            val chatbot = chatbot ?: createDefaultChatbot()
+            val chatSession = chatbot.createSession(
+                user = null,
+                outputChannel = terminalServices.outputChannel(agentPlatform)
             )
-        )
-        blackboard = processOptions.blackboard
+            return terminalServices.chat(chatSession = chatSession, welcome = null, colorPalette = colorPalette)
+        }
 
-        val goalChoiceApprover =
-            if (shellProperties.chat.confirmGoals) terminalServices else GoalChoiceApprover.APPROVE_ALL
-
-        val chatSession = AgentPlatformChatSession(
-            user = null,
-            planLister = planLister,
-            processOptions = processOptions,
-            outputChannel = terminalServices.outputChannel(),
-            responseGenerator = if (shellProperties.chat.bindConversation) AgentResponseGenerator(
-                agentPlatform = agentPlatform,
-                agent = DefaultChatAgentBuilder(
-                    autonomy = autonomy,
-                    persona = K9,
-                    llm = LlmOptions
-                        .withModel(shellProperties.chat.model)
-                        .withTemperature(null)
-                ).build()
-            ) else AutonomyResponseGenerator(
-                autonomy = autonomy,
-                goalChoiceApprover = goalChoiceApprover,
-                processWaitingHandler = TerminalServicesProcessWaitingHandler(terminalServices),
-                chatConfig = shellProperties.chat,
-            ),
-        )
-        return terminalServices.chat(chatSession = chatSession, welcome = null, colorPalette = colorPalette)
+        return if (shellProperties.redirectLogToFile) {
+            val logRestorer =
+                terminalServices.redirectLoggingToFile(filename = "chat-session", dir = System.getProperty("user.dir"))
+            try {
+                runChat()
+            } finally {
+                // Restore regular logging when chat exits
+                logRestorer()
+            }
+        } else {
+            runChat()
+        }
     }
 
     @ShellMethod("List agents")
@@ -290,8 +329,7 @@ class ShellCommands(
         this.defaultProcessOptions = ProcessOptions(
             blackboard = if (state) blackboard else null,
             verbosity = verbosity,
-            allowGoalChange = true,
-            control = ProcessControl(
+            processControl = ProcessControl(
                 earlyTerminationPolicy = EarlyTerminationPolicy.maxActions(40),
                 toolDelay = if (toolDelay) Delay.LONG else Delay.NONE,
                 operationDelay = if (operationDelay) Delay.MEDIUM else Delay.NONE,
@@ -321,6 +359,12 @@ class ShellCommands(
             help = "show detailed planning info",
             defaultValue = "true",
         ) showPlanning: Boolean = true,
+        @ShellOption(
+            value = ["-c", "--context"],
+            help = "Tool call context as comma-separated key=value pairs (e.g. tenantId=acme,apiKey=secret). " +
+                    "Merged with persistent context set via set-context; these values win on conflict.",
+            defaultValue = ShellOption.NULL,
+        ) context: String? = null,
     ): String {
         // Override any options
         setOptions(
@@ -333,9 +377,24 @@ class ShellCommands(
             operationDelay = operationDelay,
             showPlanning = showPlanning,
         )
+        // Merge persistent context with one-off context (one-off wins on conflict)
+        val effectiveContext = if (context != null) {
+            persistentToolCallContext.merge(parseToolCallContext(context))
+        } else {
+            persistentToolCallContext
+        }
+        val processOptions = if (effectiveContext != ToolCallContext.EMPTY) {
+            logger.info(
+                "ToolCallContext: {}".color(colorPalette.highlight),
+                effectiveContext.toMap(),
+            )
+            defaultProcessOptions.withToolCallContext(effectiveContext)
+        } else {
+            defaultProcessOptions
+        }
         return executeIntent(
             intent = intent,
-            processOptions = defaultProcessOptions,
+            processOptions = processOptions,
         )
     }
 
@@ -348,8 +407,8 @@ class ShellCommands(
         try {
             // Clear any active processes
             agentProcesses.clear()
-            // Graceful shutdown
-            CompletableFuture.runAsync {
+            // Graceful shutdown - use asyncer to avoid ForkJoinPool.commonPool
+            asyncer.async {
                 Thread.sleep(100) // Small delay to let response print
                 exitProcess(SpringApplication.exit(context, { 0 }))
             }
@@ -394,6 +453,22 @@ class ShellCommands(
 
     }
 
+    /**
+     * Parse a comma-separated "key=value" string into a [ToolCallContext].
+     * Example input: "tenantId=acme,apiKey=secret123"
+     */
+    private fun parseToolCallContext(input: String): ToolCallContext {
+        if (input.isBlank()) return ToolCallContext.EMPTY
+        val map = input.split(",")
+            .map { it.trim() }
+            .filter { it.contains("=") }
+            .associate { entry ->
+                val (key, value) = entry.split("=", limit = 2)
+                key.trim() to value.trim()
+            }
+        return ToolCallContext.of(map)
+    }
+
     private fun recordAgentProcess(agentProcess: AgentProcess) {
         agentProcesses.add(agentProcess)
         blackboard = agentProcess.processContext.blackboard
@@ -404,6 +479,7 @@ class ShellCommands(
         basis: Any,
         run: () -> AgentProcessExecution,
     ): String {
+        val errorMessageCannotDoIt = "I'm sorry. I don't know how to do that.\n"
         try {
             val result = run()
             logger.debug("Result: {}\n", result)
@@ -419,7 +495,7 @@ class ShellCommands(
                     """.trimIndent().color(0xbfb8b8)
                 )
             }
-            return "I'm sorry. I don't know how to do that.\n"
+            return errorMessageCannotDoIt
         } catch (gna: GoalNotApproved) {
             if (verbosity.debug) {
                 logger.info(
@@ -429,7 +505,7 @@ class ShellCommands(
                     """.trimIndent().color(0xbfb8b8)
                 )
             }
-            return "I'm sorry. I don't know how to do that.\n"
+            return errorMessageCannotDoIt
         } catch (naf: NoAgentFound) {
             if (verbosity.debug) {
                 logger.info(
@@ -440,7 +516,7 @@ class ShellCommands(
                     """.trimIndent().color(0xbfb8b8)
                 )
             }
-            return "I'm sorry. I don't know how to do that.\n"
+            return errorMessageCannotDoIt
         } catch (pese: ProcessExecutionStuckException) {
             pese.agentProcess?.let {
                 recordAgentProcess(it)
@@ -453,10 +529,7 @@ class ShellCommands(
             return "The process was terminated. Not my fault.\n\t${pete.detail.color(colorPalette.color2)}\n"
         } catch (pwe: ProcessWaitingException) {
             recordAgentProcess(pwe.agentProcess)
-            val awaitableResponse = terminalServices.handleProcessWaitingException(pwe)
-            if (awaitableResponse == null) {
-                return "Operation cancelled.\n"
-            }
+            val awaitableResponse = terminalServices.handleAwaitable(pwe.awaitable) ?: return "Operation cancelled.\n"
             pwe.awaitable.onResponse(
                 response = awaitableResponse,
                 agentProcess = pwe.agentProcess,

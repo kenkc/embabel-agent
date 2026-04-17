@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package com.embabel.agent.core
 
 import com.embabel.agent.api.common.OperationContext
 import com.embabel.common.core.types.ZeroToOne
-import com.embabel.plan.goap.ConditionDetermination
+import com.embabel.plan.common.condition.ConditionDetermination
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
@@ -30,7 +30,7 @@ class ConditionTest {
     private fun createTestCondition(
         name: String,
         cost: ZeroToOne,
-        result: ConditionDetermination
+        result: ConditionDetermination,
     ): Condition {
         return object : Condition {
             override val name = name

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,12 @@
  */
 package com.embabel.agent.channel
 
-import org.junit.jupiter.api.Test
+import com.embabel.agent.api.channel.DevNullOutputChannel
+import com.embabel.agent.api.channel.MulticastOutputChannel
+import com.embabel.agent.api.channel.OutputChannel
+import com.embabel.agent.api.channel.OutputChannelEvent
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
 
 class OutputChannelTest {
 

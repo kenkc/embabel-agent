@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,12 @@
  */
 package com.embabel.agent.autoconfigure.models.bedrock;
 
-//import com.embabel.agent.config.annotation.EnableAgentShell;
-import com.embabel.agent.config.annotation.bedrock.EnableAgentBedrock;
-import com.embabel.common.ai.model.Llm;
+import com.embabel.agent.spi.LlmService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
@@ -30,7 +29,8 @@ import org.springframework.test.annotation.DirtiesContext;
 import java.util.Arrays;
 import java.util.List;
 
-import static com.embabel.agent.config.models.bedrock.BedrockModels.*;
+import static com.embabel.agent.config.models.bedrock.BedrockModelsConfig.EU_ANTHROPIC_CLAUDE_OPUS_4;
+import static com.embabel.agent.config.models.bedrock.BedrockModelsConfig.EU_ANTHROPIC_CLAUDE_SONNET_4;
 
 @SpringBootTest(
         classes = AgentBedrockAutoConfigurationIT.class,
@@ -42,11 +42,9 @@ import static com.embabel.agent.config.models.bedrock.BedrockModels.*;
                 "spring.ai.bedrock.aws.access-key=AWSACCESSKEYID",
                 "spring.ai.bedrock.aws.secret-key=AWSSECRETACCESSKEY"
         })
-@EnableAgentBedrock
-//@EnableAgentShell can be added as well
 @ComponentScan(basePackages = "com.embabel.agent.autoconfigure")
-@ImportAutoConfiguration(classes = {AgentBedrockAutoConfiguration.class})
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ImportAutoConfiguration(classes = {JacksonAutoConfiguration.class, AgentBedrockAutoConfiguration.class})
+        @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AgentBedrockAutoConfigurationIT {
 
     @Autowired
@@ -54,10 +52,10 @@ class AgentBedrockAutoConfigurationIT {
 
     @Test
     public void testAutoConfiguredBedrockModelsBeanPresence() {
-        List<String> bedrockLlmsNames = Arrays.stream(applicationContext.getBeanNamesForType(Llm.class))
+        List<String> bedrockLlmsNames = Arrays.stream(applicationContext.getBeanNamesForType(LlmService.class))
                 .filter(it -> it.startsWith("bedrockModel-"))
-                .map(it -> applicationContext.getBean(it, Llm.class))
-                .map(Llm::getName)
+                .map(it -> applicationContext.getBean(it, LlmService.class))
+                .map(LlmService::getName)
                 .toList();
 
         Assertions.assertFalse(bedrockLlmsNames.isEmpty());

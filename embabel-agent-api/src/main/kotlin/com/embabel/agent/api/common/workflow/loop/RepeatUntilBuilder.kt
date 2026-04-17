@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,24 +15,21 @@
  */
 package com.embabel.agent.api.common.workflow.loop
 
-import com.embabel.agent.api.common.InputActionContext
-import com.embabel.agent.api.common.TransformationActionContext
-import com.embabel.agent.api.common.workflow.WorkFlowBuilderReturning
-import com.embabel.agent.api.common.workflow.WorkFlowBuilderWithInput
 import com.embabel.agent.api.common.workflow.WorkflowBuilder
-import com.embabel.agent.api.dsl.AgentScopeBuilder
-
+import com.embabel.agent.api.common.workflow.WorkflowBuilderConsuming
+import com.embabel.agent.api.common.workflow.WorkflowBuilderReturning
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
 
 /**
  * Java friendly builder for RepeatUntil workflow.
  */
-data class RepeatUntilBuilder<RESULT : Any>(
+data class RepeatUntilBuilder<INPUT, RESULT : Any>(
     private val resultClass: Class<RESULT>,
-    private val inputClasses: List<Class<out Any>> = emptyList(),
+    private val inputClass: Class<out INPUT>,
     private val maxIterations: Int = DEFAULT_MAX_ITERATIONS,
-) : WorkFlowBuilderWithInput {
+) : WorkflowBuilderConsuming {
 
-    companion object : WorkFlowBuilderReturning {
+    companion object : WorkflowBuilderReturning {
 
         const val DEFAULT_MAX_ITERATIONS = 5
 
@@ -40,29 +37,33 @@ data class RepeatUntilBuilder<RESULT : Any>(
          * Create a RepeatUntilBuilder for a specific result type and default TextFeedback.
          */
         @JvmStatic
-        override fun <RESULT : Any> returning(resultClass: Class<RESULT>): RepeatUntilBuilder<RESULT> {
-            return RepeatUntilBuilder(resultClass = resultClass)
+        override fun <RESULT : Any> returning(resultClass: Class<RESULT>): RepeatUntilBuilder<Any?, RESULT> {
+            return RepeatUntilBuilder(resultClass = resultClass, inputClass = Unit::class.java)
         }
     }
 
-    override fun withInput(inputClass: Class<out Any>): RepeatUntilBuilder<RESULT> {
-        return copy(inputClasses = inputClasses + inputClass)
+    override fun <INPUT : Any> consuming(inputClass: Class<INPUT>): RepeatUntilBuilder<INPUT, RESULT> {
+        return RepeatUntilBuilder(
+            resultClass = resultClass,
+            inputClass = inputClass,
+            maxIterations = maxIterations,
+        )
     }
 
-    fun withMaxIterations(maxIterations: Int): RepeatUntilBuilder<RESULT> =
+    fun withMaxIterations(maxIterations: Int): RepeatUntilBuilder<INPUT, RESULT> =
         copy(maxIterations = maxIterations)
 
     /**
      * Define the task to be repeated until an acceptable result is achieved.
      */
     fun repeating(
-        what: (TransformationActionContext<ResultHistory<RESULT>, RESULT>) -> RESULT,
+        what: (RepeatUntilActionContext<INPUT, RESULT>) -> RESULT,
     ): Looper {
         return Looper(generator = what)
     }
 
     inner class Looper(
-        private val generator: (TransformationActionContext<ResultHistory<RESULT>, RESULT>) -> RESULT,
+        private val generator: (RepeatUntilActionContext<INPUT, RESULT>) -> RESULT,
     ) {
 
         /**
@@ -70,27 +71,27 @@ data class RepeatUntilBuilder<RESULT : Any>(
          * This will determine when the generated result is considered acceptable.
          */
         fun until(
-            accept: (InputActionContext<ResultHistory<RESULT>>) -> Boolean,
+            accept: (RepeatUntilActionContext<INPUT, RESULT>) -> Boolean,
         ): Emitter {
             return Emitter(generator, accept)
         }
     }
 
     inner class Emitter(
-        private val generator: (TransformationActionContext<ResultHistory<RESULT>, RESULT>) -> RESULT,
-        private val accept: (InputActionContext<ResultHistory<RESULT>>) -> Boolean,
-    ) : WorkflowBuilder<RESULT>(resultClass, inputClasses) {
+        private val generator: (RepeatUntilActionContext<INPUT, RESULT>) -> RESULT,
+        private val accept: (RepeatUntilActionContext<INPUT, RESULT>) -> Boolean,
+    ) : WorkflowBuilder<RESULT>(resultClass, inputClass) {
 
         /**
          * Build the workflow so it can be included in agents
          */
-        override fun build(): AgentScopeBuilder<RESULT> {
+        override fun build(): TypedAgentScopeBuilder<RESULT> {
             return RepeatUntil(maxIterations = maxIterations)
                 .build(
                     task = generator,
                     accept = accept,
                     resultClass = resultClass,
-                    inputClasses = inputClasses,
+                    inputClass = inputClass,
                 )
         }
 

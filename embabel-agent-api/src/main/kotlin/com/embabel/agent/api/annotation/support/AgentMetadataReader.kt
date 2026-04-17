@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,27 +16,31 @@
 package com.embabel.agent.api.annotation.support
 
 import com.embabel.agent.api.annotation.*
+import com.embabel.agent.api.annotation.Action
+import com.embabel.agent.api.annotation.Agent
+import com.embabel.agent.api.annotation.Condition
 import com.embabel.agent.api.common.OperationContext
+import com.embabel.agent.api.common.PlannerType
 import com.embabel.agent.api.common.StuckHandler
-import com.embabel.agent.api.common.ToolObject
-import com.embabel.agent.core.AgentScope
-import com.embabel.agent.core.ComputedBooleanCondition
+import com.embabel.agent.api.tool.Tool
+import com.embabel.agent.api.tool.ToolObject
+import com.embabel.agent.api.validation.AgentValidationManager
+import com.embabel.agent.core.*
 import com.embabel.agent.core.Export
-import com.embabel.agent.core.IoBinding
-import com.embabel.agent.core.JvmType
+import com.embabel.agent.core.support.NIRVANA
 import com.embabel.agent.core.support.Rerun
-import com.embabel.agent.core.support.safelyGetToolCallbacksFrom
-import com.embabel.agent.validation.AgentStructureValidator
-import com.embabel.agent.validation.AgentValidationManager
-import com.embabel.agent.validation.DefaultAgentValidationManager
-import com.embabel.agent.validation.GoapPathToCompletionValidator
+import com.embabel.agent.core.support.safelyGetToolsFrom
+import com.embabel.agent.spi.validation.AgentStructureAgentValidator
+import com.embabel.agent.spi.validation.DefaultAgentValidationManager
+import com.embabel.agent.spi.validation.GoapPathToCompletionValidator
+import com.embabel.agent.spi.validation.PathToCompletionAgentValidator
 import com.embabel.common.core.types.Semver
 import com.embabel.common.util.NameUtils
 import com.embabel.common.util.loggerFor
+import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import org.slf4j.LoggerFactory
 import org.springframework.cglib.proxy.Enhancer
-import org.springframework.context.support.StaticApplicationContext
 import org.springframework.stereotype.Service
 import org.springframework.util.ClassUtils
 import org.springframework.util.ReflectionUtils
@@ -50,7 +54,7 @@ import com.embabel.agent.core.Goal as AgentCoreGoal
 /**
  * Agentic info about a type
  */
-data class AgenticInfo(
+internal data class AgenticInfo(
     val type: Class<*>,
 ) {
 
@@ -63,17 +67,19 @@ data class AgenticInfo(
         type
     }
 
-    val agentCapabilitiesAnnotation: AgentCapabilities? = targetType.getAnnotation(AgentCapabilities::class.java)
+    val embabelComponentAnnotation: EmbabelComponent? = targetType.getAnnotation(EmbabelComponent::class.java)
     val agentAnnotation: Agent? = targetType.getAnnotation(Agent::class.java)
+
+    fun isAgent(): Boolean = agentAnnotation != null
 
     /**
      * Is this type agentic at all?
      */
-    fun agentic() = agentCapabilitiesAnnotation != null || agentAnnotation != null
+    fun agentic() = embabelComponentAnnotation != null || agentAnnotation != null
 
     fun validationErrors(): Collection<String> {
         val errors = mutableListOf<String>()
-        if (agentCapabilitiesAnnotation != null && agentAnnotation != null) {
+        if (embabelComponentAnnotation != null && agentAnnotation != null) {
             errors += "Both @Agentic and @Agent annotations found on ${targetType.name}. Treating class as Agent, but both should not be used"
         }
         if (agentAnnotation != null && agentAnnotation.description.isBlank()) {
@@ -82,7 +88,7 @@ data class AgenticInfo(
         return errors
     }
 
-    fun noAutoScan() = agentCapabilitiesAnnotation?.scan == false || agentAnnotation?.scan == false
+    fun noAutoScan() = embabelComponentAnnotation?.scan == false || agentAnnotation?.scan == false
 
     /**
      * Name for this agent. Valid only if agentic() is true.
@@ -106,29 +112,24 @@ data class AgenticInfo(
 class AgentMetadataReader(
     private val actionMethodManager: ActionMethodManager = DefaultActionMethodManager(),
     private val nameGenerator: MethodDefinedOperationNameGenerator = MethodDefinedOperationNameGenerator(),
-    private val agentStructureValidator: AgentStructureValidator,
-    private val goapPathToCompletionValidator: GoapPathToCompletionValidator,
+    agentStructureValidator: AgentStructureAgentValidator = AgentStructureAgentValidator.PERMIT_ALL,
+    pathToCompletionValidator: PathToCompletionAgentValidator = GoapPathToCompletionValidator(),
+    private val requireInterfaceDeserializationAnnotations: Boolean = false,
 ) {
-    // test-friendly constructor
-    constructor() : this(
-        DefaultActionMethodManager(),
-        MethodDefinedOperationNameGenerator(),
-        AgentStructureValidator(StaticApplicationContext()),
-        GoapPathToCompletionValidator()
-    )
+
+    private val supervisorAgentFactory = SupervisorAgentFactory()
 
     private val logger = LoggerFactory.getLogger(AgentMetadataReader::class.java)
 
     private val agentValidationManager: AgentValidationManager = DefaultAgentValidationManager(
         listOf(
             agentStructureValidator,
-            goapPathToCompletionValidator
+            pathToCompletionValidator
         )
     )
 
     fun createAgentScopes(vararg instances: Any): List<AgentScope> =
         instances.mapNotNull { createAgentMetadata(it) }
-
 
     /**
      * Given this configured instance, find all the methods annotated with @Action and @Condition
@@ -153,7 +154,7 @@ class AgentMetadataReader(
         if (!agenticInfo.agentic()) {
             logger.debug(
                 "No @{} or @{} annotation found on {}",
-                AgentCapabilities::class.simpleName,
+                EmbabelComponent::class.simpleName,
                 Agent::class.simpleName,
                 targetType.name,
             )
@@ -163,7 +164,7 @@ class AgentMetadataReader(
         if (agenticInfo.validationErrors().isNotEmpty()) {
             logger.warn(
                 agenticInfo.validationErrors().joinToString("\n"),
-                AgentCapabilities::class.simpleName,
+                EmbabelComponent::class.simpleName,
                 Agent::class.simpleName,
                 targetType.name,
             )
@@ -172,16 +173,45 @@ class AgentMetadataReader(
         val getterGoals = findGoalGetters(targetType).map { getGoal(it, instance) }
         val actionMethods = findActionMethods(targetType)
         val conditionMethods = findConditionMethods(targetType)
+        val costMethods = findCostMethods(targetType, instance)
 
-        val toolCallbacksOnInstance = safelyGetToolCallbacksFrom(ToolObject.from(instance))
+        val toolsOnInstance = safelyGetToolsFrom(ToolObject.from(instance))
 
         val conditions = conditionMethods.map { createCondition(it, instance) }.toSet()
-        val (actions, actionGoals) = actionMethods.map { actionMethod ->
-            val action = actionMethodManager.createAction(actionMethod, instance, toolCallbacksOnInstance)
-            Pair(action, createGoalFromActionMethod(actionMethod, action, instance))
-        }.unzip()
 
-        val goals = getterGoals + actionGoals.filterNotNull()
+        // Collect all actions and goals, including those from @State classes
+        val allActions = mutableListOf<CoreAction>()
+        val allGoals = mutableListOf<AgentCoreGoal>()
+        val processedStateTypes = mutableSetOf<Class<*>>()
+
+        // Process top-level action methods
+        for (actionMethod in actionMethods) {
+            val action = actionMethodManager.createAction(actionMethod, instance, toolsOnInstance, costMethods)
+            allActions.add(action)
+            createGoalFromActionMethod(actionMethod, action, instance)?.let { allGoals.add(it) }
+
+            // Check if this action returns a @State type and unroll it
+            val returnType = actionMethod.returnType
+            unrollStateType(
+                stateType = returnType,
+                agentInstance = instance,
+                toolsOnInstance = toolsOnInstance,
+                allActions = allActions,
+                allGoals = allGoals,
+                processedStateTypes = processedStateTypes,
+            )
+        }
+
+        val plannerType = agenticInfo.agentAnnotation?.planner ?: PlannerType.GOAP
+
+        val goals = buildSet {
+            addAll(getterGoals)
+            addAll(allGoals)
+            if (plannerType == PlannerType.UTILITY) {
+                // Synthetic goal for utility-based agents
+                add(NIRVANA)
+            }
+        }
 
         if (actionMethods.isEmpty() && goals.isEmpty() && conditionMethods.isEmpty()) {
             logger.warn(
@@ -194,36 +224,223 @@ class AgentMetadataReader(
         }
 
         val agent = if (agenticInfo.agentAnnotation != null) {
-            CoreAgent(
-                name = agenticInfo.agentName(),
-                provider = agenticInfo.agentAnnotation.provider.ifBlank {
-                    instance.javaClass.`package`.name
-                },
-                description = agenticInfo.agentAnnotation.description,
-                version = Semver(agenticInfo.agentAnnotation.version),
-                conditions = conditions,
-                actions = actions,
-                goals = goals.toSet(),
-                stuckHandler = instance as? StuckHandler,
-                opaque = agenticInfo.agentAnnotation.opaque,
-            )
+            if (plannerType == PlannerType.SUPERVISOR) {
+                // Find the goal action (the action with @AchievesGoal)
+                val goalActions = actionMethods.filter { it.isAnnotationPresent(AchievesGoal::class.java) }
+                if (goalActions.isEmpty()) {
+                    logger.warn(
+                        "SUPERVISOR planner requires at least one @AchievesGoal action on {}",
+                        targetType.name,
+                    )
+                    return null
+                }
+                if (goalActions.size > 1) {
+                    logger.warn(
+                        "SUPERVISOR planner currently supports only one @AchievesGoal action, found {} on {}",
+                        goalActions.size,
+                        targetType.name,
+                    )
+                    return null
+                }
+                val goalAction = allActions.find { action ->
+                    goalActions.any { method ->
+                        action.name.endsWith(".${method.name}")
+                    }
+                } ?: error("Goal action not found in allActions")
+
+                supervisorAgentFactory.createSupervisorAgent(
+                    agenticInfo = agenticInfo,
+                    instance = instance,
+                    goalAction = goalAction,
+                    allActions = allActions,
+                    goals = goals,
+                    conditions = conditions,
+                )
+            } else {
+                CoreAgent(
+                    name = agenticInfo.agentName(),
+                    provider = agenticInfo.agentAnnotation.provider.ifBlank {
+                        instance.javaClass.`package`.name
+                    },
+                    description = agenticInfo.agentAnnotation.description,
+                    version = Semver(agenticInfo.agentAnnotation.version),
+                    conditions = conditions,
+                    actions = allActions,
+                    goals = goals,
+                    stuckHandler = instance as? StuckHandler,
+                    opaque = agenticInfo.agentAnnotation.opaque,
+                )
+            }
         } else {
             AgentScope(
                 name = agenticInfo.type.name,
                 conditions = conditions,
-                actions = actions,
-                goals = goals.toSet(),
+                actions = allActions,
+                goals = goals,
             )
         }
 
-        val validationResult = agentValidationManager.validate(agent)
-        if (!validationResult.isValid) {
-            logger.warn("Agent validation failed:\n${validationResult.errors.joinToString("\n")}")
-            // TODO: Uncomment to strengthen validation and refactor the test if needed. Because some tests might fail.
-            // return null
+        // Validate only if an agent, which should be self-contained
+        if (plannerType == PlannerType.GOAP && agenticInfo.isAgent()) {
+            val validationResult = agentValidationManager.validate(agent)
+            if (!validationResult.isValid) {
+                logger.warn("Agent validation failed:\n${validationResult.errors.joinToString("\n")}")
+                // TODO: Uncomment to strengthen validation and refactor the test if needed. Because some tests might fail.
+                // return null
+            }
         }
 
         return agent
+    }
+
+    /**
+     * Recursively unroll @State types to extract their actions and goals.
+     * If the type is a @State class or an interface/sealed class with @State implementations,
+     * extract all @Action methods from those state classes and add them to the agent.
+     */
+    private fun unrollStateType(
+        stateType: Class<*>,
+        agentInstance: Any,
+        toolsOnInstance: List<Tool>,
+        allActions: MutableList<CoreAction>,
+        allGoals: MutableList<AgentCoreGoal>,
+        processedStateTypes: MutableSet<Class<*>>,
+    ) {
+        // Find all @State classes to process
+        val stateClasses = findStateClasses(stateType)
+        for (stateClass in stateClasses) {
+            if (processedStateTypes.contains(stateClass)) {
+                continue
+            }
+            processedStateTypes.add(stateClass)
+            // Find action methods in the state class
+            val stateActionMethods = findActionMethods(stateClass)
+            for (actionMethod in stateActionMethods) {
+                val action = createActionFromStateMethod(
+                    actionMethod,
+                    stateClass,
+                )
+                allActions.add(action)
+                createGoalFromStateActionMethod(actionMethod, action, stateClass, agentInstance)?.let {
+                    allGoals.add(it)
+                }
+                // Recursively unroll if this action also returns a @State type
+                unrollStateType(
+                    stateType = actionMethod.returnType,
+                    agentInstance = agentInstance,
+                    toolsOnInstance = toolsOnInstance,
+                    allActions = allActions,
+                    allGoals = allGoals,
+                    processedStateTypes = processedStateTypes,
+                )
+            }
+        }
+    }
+
+    /**
+     * Find all @State classes for a given type.
+     * If the type itself is annotated with @State, return it.
+     * If the type is an interface or sealed class, find all implementations/subclasses
+     * that are annotated with @State.
+     */
+    private fun findStateClasses(type: Class<*>): List<Class<*>> {
+        val result = mutableListOf<Class<*>>()
+        // Check if the type itself is a @State
+        if (isStateType(type)) {
+            validateStateClass(type)
+            result.add(type)
+        }
+        // Check for subclasses/implementations that are @State
+        // This handles sealed classes, interfaces with implementations, and abstract classes
+        val jvmType = JvmType(type)
+        val children = jvmType.children()
+        for (child in children) {
+            if (isStateType(child.clazz)) {
+                validateStateClass(child.clazz)
+                result.add(child.clazz)
+            }
+        }
+        return result
+    }
+
+    /**
+     * Validates a @State class and throws an exception for invalid configurations.
+     * Non-static inner classes (Java) or inner classes (Kotlin) are not allowed
+     * because they hold a reference to their enclosing instance, causing
+     * serialization/persistence issues.
+     */
+    private fun validateStateClass(stateClass: Class<*>) {
+        if (stateClass.enclosingClass != null && !java.lang.reflect.Modifier.isStatic(stateClass.modifiers)) {
+            throw IllegalStateException(
+                """
+                |@State class '${stateClass.simpleName}' is a non-static inner class.
+                |This is not allowed because it holds a reference to its enclosing class '${stateClass.enclosingClass.simpleName}'.
+                |
+                |Solutions:
+                |  - In Java: Use a static nested class or a record (records are implicitly static)
+                |  - In Kotlin: Use a top-level class or a class in a companion object
+                |
+                |Example (Java record - recommended):
+                |  @State
+                |  record MyState(String data) { ... }
+                |
+                |Example (Kotlin top-level class):
+                |  @State
+                |  data class MyState(val data: String) { ... }
+                """.trimMargin()
+            )
+        }
+    }
+
+    /**
+     * Create an action from a method defined in a @State class.
+     * The state instance will be created at runtime from the blackboard.
+     */
+    private fun createActionFromStateMethod(
+        method: Method,
+        stateClass: Class<*>,
+    ): CoreAction {
+        return StateActionMethodManager(
+            actionMethodManager = actionMethodManager,
+        ).createAction(method, stateClass)
+    }
+
+    /**
+     * Create a goal from an @Action method in a @State class that also has @AchievesGoal.
+     */
+    private fun createGoalFromStateActionMethod(
+        method: Method,
+        action: CoreAction,
+        stateClass: Class<*>,
+        agentInstance: Any,
+    ): AgentCoreGoal? {
+        val actionAnnotation = method.getAnnotation(Action::class.java)
+        val goalAnnotation = method.getAnnotation(AchievesGoal::class.java) ?: return null
+        val inputBinding = IoBinding(
+            name = actionAnnotation.outputBinding,
+            type = method.returnType.name,
+        )
+        // Exclude trigger preconditions from goal - they control when the action fires,
+        // not whether the goal was achieved.
+        val triggerType = findTriggerType(method)
+        val triggerPrecondition = if (triggerType != null) triggerPrecondition(triggerType) else null
+        val goalPreconditions = action.preconditions.keys
+            .filter { it != triggerPrecondition }
+            .toSet()
+        return AgentCoreGoal(
+            name = "${stateClass.simpleName}.${method.name}",
+            description = goalAnnotation.description,
+            inputs = setOf(inputBinding),
+            outputType = JvmType(method.returnType),
+            value = { goalAnnotation.value },
+            pre = setOf(Rerun.hasRunCondition(action)) + goalPreconditions,
+            export = Export(
+                local = goalAnnotation.export.local,
+                remote = goalAnnotation.export.remote,
+                name = goalAnnotation.export.name.ifBlank { null },
+                startingInputTypes = goalAnnotation.export.startingInputTypes.map { it.java }.toSet(),
+            )
+        )
     }
 
     private fun findConditionMethods(type: Class<*>): List<Method> {
@@ -231,12 +448,34 @@ class AgentMetadataReader(
         ReflectionUtils.doWithMethods(
             type,
             { method -> conditionMethods.add(method) },
-            // Make sure we only get annotated methods from this type, not supertypes
             { method ->
-                method.isAnnotationPresent(Condition::class.java) &&
-                        type.declaredMethods.contains(method)
+                isConditionMethod(method, type)
             })
         return conditionMethods
+    }
+
+    /**
+     * Find all @Cost methods on the type and return a map of cost method name -> CostMethodInfo.
+     */
+    private fun findCostMethods(
+        type: Class<*>,
+        instance: Any,
+    ): Map<String, CostMethodInfo> {
+        val costMethods = mutableMapOf<String, CostMethodInfo>()
+        ReflectionUtils.doWithMethods(
+            type,
+            { method ->
+                val costAnnotation = method.getAnnotation(Cost::class.java)
+                val name = costAnnotation.name.ifBlank {
+                    nameGenerator.generateName(instance, method.name)
+                }
+                costMethods[name] = CostMethodInfo(method, instance)
+            },
+            { method ->
+                method.isAnnotationPresent(Cost::class.java) &&
+                        (type.declaredMethods.contains(method) || isMethodFromSupertype(method, type))
+            })
+        return costMethods
     }
 
     private fun findActionMethods(type: Class<*>): List<Method> {
@@ -244,18 +483,67 @@ class AgentMetadataReader(
         ReflectionUtils.doWithMethods(
             type,
             { method -> actionMethods.add(method) },
-            // Make sure we only get annotated methods from this type, not supertypes
-            { method ->
-                method.isAnnotationPresent(Action::class.java) &&
-                        type.declaredMethods.contains(method) &&
-                        (!method.returnType.isInterface || hasRequiredJsonDeserializeAnnotationOnInterfaceReturnType(
-                            method
-                        ))
-            })
+            // Get annotated methods from this type and interfaces
+            { method -> isActionMethod(method, type) })
         if (actionMethods.isEmpty()) {
             logger.debug("No methods annotated with @{} found in {}", Action::class.simpleName, type)
         }
         return actionMethods
+    }
+
+    private fun isActionMethod(
+        method: Method,
+        type: Class<*>,
+    ): Boolean {
+        return method.isAnnotationPresent(Action::class.java) &&
+                (type.declaredMethods.contains(method) || isMethodFromSupertype(method, type)) &&
+                (!method.returnType.isInterface || !requireInterfaceDeserializationAnnotations || hasRequiredJsonDeserializeAnnotationOnInterfaceReturnType(
+                    method
+                ))
+    }
+
+    private fun isConditionMethod(
+        method: Method,
+        type: Class<*>,
+    ): Boolean {
+        return method.isAnnotationPresent(Condition::class.java) &&
+                (type.declaredMethods.contains(method) || isMethodFromSupertype(method, type))
+    }
+
+    private fun isMethodFromSupertype(
+        method: Method,
+        type: Class<*>,
+    ): Boolean {
+        // Check interfaces
+        if (type.interfaces.any { interfaceType ->
+                interfaceType.declaredMethods.any { interfaceMethod ->
+                    methodSignaturesMatch(method, interfaceMethod)
+                }
+            }) {
+            return true
+        }
+
+        // Check superclasses
+        var superclass = type.superclass
+        while (superclass != null && superclass != Any::class.java) {
+            if (superclass.declaredMethods.any { superMethod ->
+                    methodSignaturesMatch(method, superMethod)
+                }) {
+                return true
+            }
+            superclass = superclass.superclass
+        }
+
+        return false
+    }
+
+    private fun methodSignaturesMatch(
+        method1: Method,
+        method2: Method,
+    ): Boolean {
+        return method1.name == method2.name &&
+                method1.parameterTypes.contentEquals(method2.parameterTypes) &&
+                method1.returnType == method2.returnType
     }
 
     private fun findGoalGetters(type: Class<*>): List<Method> {
@@ -393,14 +681,22 @@ class AgentMetadataReader(
             name = actionAnnotation.outputBinding,
             type = method.returnType.name,
         )
+        // Exclude trigger preconditions from goal - they control when the action fires,
+        // not whether the goal was achieved. After the action runs, the lastResult changes
+        // and the trigger condition becomes false, which should not prevent goal completion.
+        val triggerType = findTriggerType(method)
+        val triggerPrecondition = if (triggerType != null) triggerPrecondition(triggerType) else null
+        val goalPreconditions = action.preconditions.keys
+            .filter { it != triggerPrecondition }
+            .toSet()
         return AgentCoreGoal(
             name = nameGenerator.generateName(instance, method.name),
             description = goalAnnotation.description,
             inputs = setOf(inputBinding),
             outputType = JvmType(method.returnType),
-            value = goalAnnotation.value,
+            value = { goalAnnotation.value },
             // Add precondition of the action having run
-            pre = setOf(Rerun.hasRunCondition(action)) + action.preconditions.keys.toSet(),
+            pre = setOf(Rerun.hasRunCondition(action)) + goalPreconditions,
             export = Export(
                 local = goalAnnotation.export.local,
                 remote = goalAnnotation.export.remote,
@@ -417,12 +713,13 @@ class AgentMetadataReader(
  * @return true if the return type has a @JsonDeserialize annotation, false otherwise
  */
 private fun hasRequiredJsonDeserializeAnnotationOnInterfaceReturnType(method: Method): Boolean {
-    val hasRequiredAnnotation = method.returnType.isAnnotationPresent(JsonDeserialize::class.java)
+    val hasRequiredAnnotation = method.returnType.isAnnotationPresent(JsonDeserialize::class.java) ||
+            method.returnType.isAnnotationPresent(JsonTypeInfo::class.java)
     if (!hasRequiredAnnotation) {
         loggerFor<AgentMetadataReader>().warn(
-            "❓Interface {} used as return type of {}.{} must have @JsonDeserialize annotation",
-            method.returnType,
-            method.declaringClass,
+            "❓Interface {} used as return type of {}.{} must have @JsonDeserialize or @JsonTypeInfo annotation",
+            method.returnType.name,
+            method.declaringClass.name,
             method.name,
         )
     }

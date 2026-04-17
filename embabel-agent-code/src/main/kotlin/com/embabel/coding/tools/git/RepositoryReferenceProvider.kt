@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,11 @@
  */
 package com.embabel.coding.tools.git
 
+import com.embabel.agent.api.annotation.LlmTool
 import com.embabel.agent.core.AgentProcess
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.GitAPIException
 import org.slf4j.LoggerFactory
-import org.springframework.ai.tool.annotation.Tool
-import org.springframework.ai.tool.annotation.ToolParam
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.absolutePathString
@@ -56,10 +55,10 @@ data class RepositoryReferenceProvider(
     /**
      * Will add a reference to the blackboard
      */
-    @Tool(description = "Clone a Git repository from the given URL to a temporary directory")
+    @LlmTool(description = "Clone a Git repository from the given URL to a temporary directory")
     fun clone(
         url: String,
-        @ToolParam(description = "Description of the repository")
+        @LlmTool.Param(description = "Description of the repository")
         description: String,
     ): String {
         val agentProcess = AgentProcess.get()
@@ -87,28 +86,15 @@ data class RepositoryReferenceProvider(
         url: String,
         description: String,
         branch: String? = null,
-        depth: Int? = null,
+        depth: Int = 1,
     ): ClonedRepositoryReference {
         val tempDir = createTempDirectory()
 
         try {
-            logger.debug("Cloning a Git repository from $url into temp dir ${tempDir.absolutePathString()}")
-            val cloneCommand = Git.cloneRepository()
-                .setURI(url)
-                .setDirectory(tempDir.toFile())
-                .setCloneAllBranches(branch == null)
+            logger.debug("Cloning a Git repository from {} into temp dir {}", url, tempDir.absolutePathString())
+            callCloneCommand(url, tempDir, branch, depth)
 
-            branch?.let { cloneCommand.setBranch(it) }
-            depth?.let { cloneCommand.setDepth(it) }
-
-            cloneCommand.call().use { git ->
-                // Verify clone was successful
-                if (!Files.exists(tempDir.resolve(".git"))) {
-                    throw IllegalStateException("Clone operation completed but .git directory not found")
-                }
-            }
-
-            logger.info("✅ Cloned Git repository from $url into temp dir ${tempDir.absolutePathString()}")
+            logger.info("✅ Cloned Git repository {} into temp dir {}", url, tempDir.absolutePathString())
             return ClonedRepositoryReference(
                 url = url,
                 description = description,
@@ -123,10 +109,7 @@ data class RepositoryReferenceProvider(
             } catch (cleanupEx: Exception) {
                 e.addSuppressed(cleanupEx)
             }
-            throw when (e) {
-                is GitAPIException -> e
-                else -> e
-            }
+            throw e
         }
     }
 
@@ -140,28 +123,14 @@ data class RepositoryReferenceProvider(
         description: String,
         targetDirectory: Path,
         branch: String? = null,
-        depth: Int? = null,
+        depth: Int = 1,
     ): ClonedRepositoryReference {
         if (Files.exists(targetDirectory) && Files.list(targetDirectory).use { it.findFirst().isPresent }) {
             throw IllegalArgumentException("Target directory $targetDirectory already exists and is not empty")
         }
 
         Files.createDirectories(targetDirectory.parent)
-
-        val cloneCommand = Git.cloneRepository()
-            .setURI(url)
-            .setDirectory(targetDirectory.toFile())
-            .setCloneAllBranches(branch == null)
-
-        branch?.let { cloneCommand.setBranch(it) }
-        depth?.let { cloneCommand.setDepth(it) }
-
-        cloneCommand.call().use { git ->
-            // Verify clone was successful
-            if (!Files.exists(targetDirectory.resolve(".git"))) {
-                throw IllegalStateException("Clone operation completed but .git directory not found")
-            }
-        }
+        callCloneCommand(url, targetDirectory, branch, depth)
 
         return ClonedRepositoryReference(
             url = url,
@@ -174,6 +143,28 @@ data class RepositoryReferenceProvider(
 
     private fun createTempDirectory(): Path {
         return Files.createTempDirectory("embabel-git-")
+    }
+
+    private fun callCloneCommand(
+        url: String,
+        targetDir: Path,
+        branch: String? = null,
+        depth: Int,
+    ) {
+        val cloneCommand = Git.cloneRepository()
+            .setURI(url)
+            .setDirectory(targetDir.toFile())
+            .setCloneAllBranches(branch == null)
+            .setDepth(depth)
+
+        branch?.let { cloneCommand.setBranch(it) }
+
+        cloneCommand.call().use { git ->
+            // Verify clone was successful
+            if (!Files.exists(targetDir.resolve(".git"))) {
+                throw IllegalStateException("Clone operation completed but .git directory not found")
+            }
+        }
     }
 
     companion object {

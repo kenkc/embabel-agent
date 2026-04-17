@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,21 +30,9 @@ fun interface MessageFormatter {
 }
 
 object SimpleMessageFormatter : MessageFormatter {
-    override fun format(message: Message): String =
-        if (message.name != null) "${message.name} (${message.role}): ${message.content}"
+    override fun format(message: Message): String {
+        val name = (message as? BaseMessage)?.name
+        return if (name != null) "$name (${message.role}): ${message.content}"
         else "${message.role}: ${message.content}"
-}
-
-/**
- * Conversation formatter that shows the last `windowSize` messages
- */
-class WindowingConversationFormatter @JvmOverloads constructor(
-    private val messageFormatter: MessageFormatter = SimpleMessageFormatter,
-    private val windowSize: Int = 100,
-) : ConversationFormatter {
-
-    override fun format(conversation: Conversation): String =
-        conversation.messages
-            .takeLast(windowSize)
-            .joinToString("\n") { messageFormatter.format(it) }
+    }
 }

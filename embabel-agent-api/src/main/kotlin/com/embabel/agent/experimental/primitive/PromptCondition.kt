@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,11 +18,11 @@ package com.embabel.agent.experimental.primitive
 import com.embabel.agent.api.common.InteractionId
 import com.embabel.agent.api.common.OperationContext
 import com.embabel.agent.core.Condition
-import com.embabel.agent.spi.LlmCall
-import com.embabel.agent.spi.LlmInteraction
+import com.embabel.agent.core.support.LlmCall
+import com.embabel.agent.core.support.LlmInteraction
 import com.embabel.chat.UserMessage
 import com.embabel.common.core.types.ZeroToOne
-import com.embabel.plan.goap.ConditionDetermination
+import com.embabel.plan.common.condition.ConditionDetermination
 import com.fasterxml.jackson.annotation.JsonClassDescription
 import com.fasterxml.jackson.annotation.JsonPropertyDescription
 import org.slf4j.LoggerFactory

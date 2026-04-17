@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  */
 package com.embabel.chat.support.console
 
-import com.embabel.agent.event.logging.personality.ColorPalette
-import com.embabel.agent.event.logging.personality.DefaultColorPalette
+import com.embabel.agent.spi.logging.ColorPalette
+import com.embabel.agent.spi.logging.DefaultColorPalette
 import com.embabel.chat.ChatSession
 import com.embabel.chat.UserMessage
 import com.embabel.common.util.color

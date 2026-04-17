@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,12 +35,28 @@ import org.springframework.context.annotation.Configuration;
  */
 @ConfigurationPropertiesScan(
         basePackages = {
-                "com.embabel.agent"
+                "com.embabel.agent.api",
+                "com.embabel.agent.core",
+                "com.embabel.agent.experimental",
+                "com.embabel.agent.prompt",
+                "com.embabel.agent.spi",
+                "com.embabel.agent.test",
+                "com.embabel.agent.tools",
+                "com.embabel.agent.web"
         }
 )
 @ComponentScan(
         basePackages = {
-                "com.embabel.agent"
+                //Scan Agent Framework Core Packages
+                //This can stay here, this is the main autoconfigure module for the Agent Platform
+                "com.embabel.agent.api",
+                "com.embabel.agent.core",
+                "com.embabel.agent.experimental",
+                "com.embabel.agent.prompt",
+                "com.embabel.agent.spi",
+                "com.embabel.agent.test",
+                "com.embabel.agent.tools",
+                "com.embabel.agent.web"
         }
 )
 @Configuration

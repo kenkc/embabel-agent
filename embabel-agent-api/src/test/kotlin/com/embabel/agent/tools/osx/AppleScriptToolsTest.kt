@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,13 @@
  */
 package com.embabel.agent.tools.osx
 
-import com.embabel.agent.common.Constants
 import com.embabel.agent.core.ToolGroupPermission
+import com.embabel.agent.spi.common.Constants
 import com.embabel.common.core.types.Semver
-import io.mockk.*
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -102,7 +105,15 @@ class AppleScriptToolsTest {
 
         mockkStatic(Runtime::class) {
             every { Runtime.getRuntime() } returns mockRuntime
-            every { mockRuntime.exec(arrayOf("osascript", "-e", "test script")) } throws RuntimeException("Process execution failed")
+            every {
+                mockRuntime.exec(
+                    arrayOf(
+                        "osascript",
+                        "-e",
+                        "test script"
+                    )
+                )
+            } throws RuntimeException("Process execution failed")
 
             try {
                 appleScriptTools.runAppleScript("test script")

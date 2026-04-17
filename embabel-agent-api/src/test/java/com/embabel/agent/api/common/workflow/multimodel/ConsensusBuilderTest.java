@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
-import static com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentPlatform;
+import static com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentPlatform;
 import static org.junit.jupiter.api.Assertions.*;
 
 

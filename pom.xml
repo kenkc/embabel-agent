@@ -4,19 +4,22 @@
     <parent>
         <groupId>com.embabel.build</groupId>
         <artifactId>embabel-build-parent</artifactId>
-        <version>0.1.5-SNAPSHOT</version>
+        <version>0.1.13-SNAPSHOT</version>
     </parent>
     <groupId>com.embabel.agent</groupId>
     <artifactId>embabel-agent-parent</artifactId>
-    <version>0.1.4-SNAPSHOT</version>
+    <version>0.4.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Embabel Agent Parent</name>
     <description>Parent POM for Embabel Agent Modules</description>
+    <url>https://github.com/embabel/embabel-agent</url>
 
     <properties>
-        <embabel-common.version>0.1.4-SNAPSHOT</embabel-common.version>
-        <!-- Netty version for security vulnerability fixes - duplicate from build-dependencies -->
-        <netty.version>4.1.125.Final</netty.version>
+        <argLine/>
+        <embabel-common.version>0.1.12-SNAPSHOT</embabel-common.version>
+        <netty.version>4.1.132.Final</netty.version>
+        <spotbugs-maven-plugin.version>4.9.8.2</spotbugs-maven-plugin.version>
+        <sb-contrib.version>7.7.4</sb-contrib.version>
     </properties>
 
     <modules>
@@ -24,15 +27,18 @@
         <module>embabel-agent-a2a</module>
         <module>embabel-agent-autoconfigure</module>
         <module>embabel-agent-code</module>
+        <module>embabel-agent-common</module>
+        <module>embabel-agent-domain</module>
         <module>embabel-agent-dependencies</module>
-        <module>embabel-agent-eval</module>
-        <module>embabel-agent-mcpserver</module>
+        <module>embabel-agent-mcp</module>
+        <module>embabel-agent-observability</module>
         <module>embabel-agent-rag</module>
         <module>embabel-agent-shell</module>
+        <module>embabel-agent-skills</module>
         <module>embabel-agent-starters</module>
         <module>embabel-agent-test-support</module>
-        <module>embabel-agent-ux</module>
-        <module>embabel-agent-discord</module>
+        <module>embabel-agent-openai</module>
+        <module>embabel-agent-onnx</module>
     </modules>
 
     <scm>
@@ -72,10 +78,8 @@
             <!-- Netty Version Upgrades - Security Vulnerability Fixes -->
             <!-- 
               Force safe netty versions to fix multiple CVEs:
-              - CVE-2025-58057 (GHSA-3p8m-j85q-pgmj): DoS via zip bomb in netty-codec
-              - CVE-2025-58056 (GHSA-fghv-69vj-qj49): Request smuggling in netty-codec-http  
-              - CVE-2025-59340 (GHSA-prj3-ccx8-p6x4): MadeYouReset HTTP/2 DDoS in netty-codec-http2
-              
+              https://github.com/advisories/GHSA-w9fj-cfpg-grvv
+              https://github.com/advisories/GHSA-pwqr-wmgm-9rr8
               Added to common parent to override all transitive netty dependencies across all modules.
             -->
             <dependency>
@@ -108,6 +112,7 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Consider kotlin-test-junit5 for enhanced JUnit 5 integration (test discovery, parameterized tests) -->
         <dependency>
             <groupId>org.jetbrains.kotlin</groupId>
             <artifactId>kotlin-test</artifactId>
@@ -137,6 +142,22 @@
 
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <!--
+                          Force US English locale for all test executions to ensure
+                          locale-sensitive tests produce consistent results regardless
+                          of the developer's system locale (e.g., date formatting).
+                        -->
+                        <argLine>@{argLine} -Duser.language=en -Duser.country=US</argLine>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>pl.project13.maven</groupId>
@@ -150,6 +171,30 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>${spotbugs-maven-plugin.version}</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Medium</threshold>
+                    <xmlOutput>true</xmlOutput>
+                    <includeFilterFile>spotbugs-concurrency.xml</includeFilterFile>
+
+                    <!-- Optimized for Kotlin/Java performance -->
+                    <maxHeap>1024</maxHeap>
+                    <jvmArgs>-XX:+TieredCompilation -XX:TieredStopAtLevel=1</jvmArgs>
+
+                    <plugins>
+                        <plugin>
+                            <groupId>com.mebigfatguy.sb-contrib</groupId>
+                            <artifactId>sb-contrib</artifactId>
+                            <version>${sb-contrib.version}</version>
+                        </plugin>
+                    </plugins>
+                </configuration>
+            </plugin>
+
         </plugins>
     </build>
 

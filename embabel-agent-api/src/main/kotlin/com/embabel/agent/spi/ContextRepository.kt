@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,9 +23,15 @@ import com.embabel.agent.core.Context
 interface ContextRepository {
 
     /**
-     * Create an empty context.
+     * Create an empty context with a generated ID.
      */
     fun create(): Context
+
+    /**
+     * Create an empty context with the specified ID.
+     * Use this when you want deterministic context IDs (e.g., "userId-contextName").
+     */
+    fun createWithId(id: String): Context
 
     fun save(context: Context): Context
 

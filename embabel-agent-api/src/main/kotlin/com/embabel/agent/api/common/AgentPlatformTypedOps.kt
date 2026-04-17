@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
  */
 package com.embabel.agent.api.common
 
-import com.embabel.agent.common.Constants
 import com.embabel.agent.core.*
+import com.embabel.agent.spi.common.Constants
 import org.slf4j.LoggerFactory
 
 class NoSuchAgentException(
     val agentName: String,
-    val knownAgents: String
+    val knownAgents: String,
 ) : IllegalArgumentException("No such agent: '$agentName'. Known agents: $knownAgents")
 
 
@@ -29,7 +29,7 @@ class NoSuchAgentException(
  * Typed operations over an agent platform
  */
 class AgentPlatformTypedOps(
-    private val agentPlatform: AgentPlatform
+    private val agentPlatform: AgentPlatform,
 ) : TypedOps {
 
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -67,7 +67,10 @@ private class AgentPlatformBackedAgentFunction<I : Any, O>(
     override val agentScope: AgentScope
         get() = agentPlatform
 
-    override fun apply(input: I, processOptions: ProcessOptions): O {
+    override fun apply(
+        input: I,
+        processOptions: ProcessOptions,
+    ): O {
         val goalAgent = agentPlatform.createAgent(
             name = "goal-${outputClass.simpleName}",
             provider = Constants.EMBABEL_PROVIDER,
@@ -103,7 +106,10 @@ private class AgentBackedAgentFunction<I : Any, O>(
     override val agentScope: AgentScope
         get() = agentPlatform
 
-    override fun apply(input: I, processOptions: ProcessOptions): O {
+    override fun apply(
+        input: I,
+        processOptions: ProcessOptions,
+    ): O {
         val processStatus = agentPlatform.runAgentFrom(
             processOptions = processOptions,
             agent = agent,

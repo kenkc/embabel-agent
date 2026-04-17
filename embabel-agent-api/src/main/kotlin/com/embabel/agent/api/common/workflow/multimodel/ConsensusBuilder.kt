@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,11 +17,11 @@ package com.embabel.agent.api.common.workflow.multimodel
 
 import com.embabel.agent.api.common.SupplierActionContext
 import com.embabel.agent.api.common.TransformationActionContext
-import com.embabel.agent.api.common.workflow.WorkFlowBuilderReturning
 import com.embabel.agent.api.common.workflow.WorkflowBuilder
+import com.embabel.agent.api.common.workflow.WorkflowBuilderReturning
 import com.embabel.agent.api.common.workflow.control.ResultList
 import com.embabel.agent.api.common.workflow.control.ScatterGather
-import com.embabel.agent.api.dsl.AgentScopeBuilder
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
 import java.util.function.Supplier
 
 /**
@@ -34,7 +34,7 @@ class ConsensusBuilder<RESULT : Any>(
     private val maxConcurrency: Int = DEFAULT_MAX_CONCURRENCY,
 ) {
 
-    companion object : WorkFlowBuilderReturning {
+    companion object : WorkflowBuilderReturning {
 
         const val DEFAULT_MAX_CONCURRENCY = 6
 
@@ -81,9 +81,9 @@ class ConsensusBuilder<RESULT : Any>(
     inner class ConsensusSpec(
         private val generators: List<java.util.function.Function<out SupplierActionContext<RESULT>, RESULT>>,
         private val consensusFunction: (TransformationActionContext<ResultList<RESULT>, RESULT>) -> RESULT,
-    ) : WorkflowBuilder<RESULT>(resultClass, inputClasses = emptyList()) {
+    ) : WorkflowBuilder<RESULT>(resultClass, inputClass = null) {
 
-        override fun build(): AgentScopeBuilder<RESULT> {
+        override fun build(): TypedAgentScopeBuilder<RESULT> {
             return ScatterGather(maxConcurrency = maxConcurrency)
                 .forkJoin(
                     generators = generators.map { it::apply } as List<(SupplierActionContext<RESULT>) -> RESULT>,

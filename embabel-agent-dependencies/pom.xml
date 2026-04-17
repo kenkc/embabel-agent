@@ -4,15 +4,24 @@
     <parent>
         <groupId>com.embabel.build</groupId>
         <artifactId>embabel-dependencies-parent</artifactId>
-        <version>0.1.5-SNAPSHOT</version>
+        <version>0.1.13-SNAPSHOT</version>
         <relativePath />
     </parent>
     <groupId>com.embabel.agent</groupId>
     <artifactId>embabel-agent-dependencies</artifactId>
-    <version>0.1.4-SNAPSHOT</version>
+    <version>0.4.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Embabel Agent BOM</name>
     <description>Embabel Agent BOM</description>
+    <url>https://github.com/embabel/embabel-agent</url>
+
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -27,9 +36,33 @@
                 <version>${project.version}</version>
             </dependency>
 
-           <dependency>
+            <dependency>
                 <groupId>com.embabel.agent</groupId>
                 <artifactId>embabel-agent-code</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-byok</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-ai</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-webmvc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-domain</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -42,6 +75,42 @@
             <dependency>
                 <groupId>com.embabel.agent</groupId>
                 <artifactId>embabel-agent-platform-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-a2a-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-shell-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-observability-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-mcpserver-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-mcpserver-security-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-netty-client-autoconfigure</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -71,7 +140,19 @@
 
             <dependency>
                 <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-openai-custom-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
                 <artifactId>embabel-agent-ollama-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-lmstudio-autoconfigure</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -83,7 +164,25 @@
 
             <dependency>
                 <groupId>com.embabel.agent</groupId>
-                <artifactId>embabel-agent-eval</artifactId>
+                <artifactId>embabel-agent-gemini-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-google-genai-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-minimax-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-mistral-ai-autoconfigure</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -95,7 +194,43 @@
 
             <dependency>
                 <groupId>com.embabel.agent</groupId>
-                <artifactId>embabel-agent-rag-neo</artifactId>
+                <artifactId>embabel-agent-mcp-security</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-observability</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-openai</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-onnx</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-onnx-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-onnx</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-rag-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -119,6 +254,12 @@
 
             <dependency>
                 <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-skills</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
                 <artifactId>embabel-agent-shell</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -133,7 +274,7 @@
                 <groupId>com.embabel.agent</groupId>
                 <artifactId>embabel-agent-starter-anthropic</artifactId>
                 <version>${project.version}</version>
-            </dependency>            
+            </dependency>
 
             <dependency>
                 <groupId>com.embabel.agent</groupId>
@@ -155,6 +296,30 @@
 
             <dependency>
                 <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-gemini</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-google-genai</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-minimax</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-mistral-ai</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
                 <artifactId>embabel-agent-starter-openai</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -162,6 +327,24 @@
             <dependency>
                 <groupId>com.embabel.agent</groupId>
                 <artifactId>embabel-agent-starter-ollama</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-lmstudio</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-observability</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-mcpserver-security</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -179,6 +362,18 @@
 
             <dependency>
                 <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-a2a</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
+                <artifactId>embabel-agent-starter-webmvc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.embabel.agent</groupId>
                 <artifactId>embabel-agent-test</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -191,14 +386,15 @@
 
             <dependency>
                 <groupId>com.embabel.agent</groupId>
-                <artifactId>embabel-agent-discord</artifactId>
+                <artifactId>embabel-agent-test-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
+            <!-- OpenTelemetry Semantic Conventions (separate group from opentelemetry-bom) -->
             <dependency>
-                <groupId>com.embabel.agent</groupId>
-                <artifactId>embabel-agent-ux</artifactId>
-                <version>${project.version}</version>
+                <groupId>io.opentelemetry.semconv</groupId>
+                <artifactId>opentelemetry-semconv</artifactId>
+                <version>1.29.0-alpha</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

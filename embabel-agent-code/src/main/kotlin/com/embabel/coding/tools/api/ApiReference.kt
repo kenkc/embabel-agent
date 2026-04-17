@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,13 @@
  */
 package com.embabel.coding.tools.api
 
-import com.embabel.agent.api.common.LlmReference
-import org.springframework.ai.tool.annotation.Tool
+import com.embabel.agent.api.annotation.LlmTool
+import com.embabel.agent.api.reference.LlmReference
+import com.embabel.agent.api.tool.Tool
 
 /**
  * API reference that can be exposed to LLMs as a prompt contribution and tools.
+ * Can also be used in configuration to provide API reference information.
  */
 class ApiReference(
     override val description: String,
@@ -28,6 +30,8 @@ class ApiReference(
 ) : LlmReference {
 
     override val name = api.name
+
+    override fun tools(): List<Tool> = Tool.fromInstance(this)
 
     override fun notes(): String {
         if (api.classes.size > classLimit) {
@@ -58,7 +62,7 @@ class ApiReference(
         return sb.toString()
     }
 
-    @Tool(description = "find the signature of a class by FQN")
+    @LlmTool(description = "find the signature of a class by FQN")
     fun findClassSignatureByFqn(fqn: String): String {
         val classes = api.classes.filter { it.fqn().equals(fqn, ignoreCase = true) }
         return if (classes.isEmpty()) {
@@ -73,7 +77,7 @@ class ApiReference(
         }
     }
 
-    @Tool(description = "find the signature of a class by simple name")
+    @LlmTool(description = "find the signature of a class by simple name")
     fun findClassSignatureBySimpleName(simpleName: String): String {
         val matchingClasses = api.classes.filter { it.name.equals(simpleName, ignoreCase = true) }
 
@@ -91,7 +95,7 @@ class ApiReference(
         }
     }
 
-    @Tool(description = "find the signature of a package by FQN")
+    @LlmTool(description = "find the signature of a package by FQN")
     fun findPackageSignature(packageName: String): String {
         val classesInPackage = api.classes.filter { it.packageName == packageName }
         if (classesInPackage.isEmpty()) {

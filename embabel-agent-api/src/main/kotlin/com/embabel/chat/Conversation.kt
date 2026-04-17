@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,34 +15,83 @@
  */
 package com.embabel.chat
 
-import com.embabel.agent.api.common.autonomy.AgentProcessExecution
-import com.embabel.agent.domain.library.HasContent
+import com.embabel.agent.api.identity.User
 import com.embabel.common.ai.prompt.PromptContributor
 import com.embabel.common.core.StableIdentified
 import com.embabel.common.core.types.HasInfoString
-import com.embabel.common.core.types.Timestamped
-import com.embabel.common.util.trim
-import java.time.Instant
 
 /**
  * Conversation shim for agent system.
- * Mutable.
+ * Mutable. Conversation AssetView shows assets both from our AssetTracker
+ * and messages.
  */
-interface Conversation : StableIdentified, HasInfoString {
+interface Conversation : StableIdentified, HasInfoString, AssetView {
 
+    /**
+     * Messages in the conversation in chronological order.
+     * Visible to user.
+     */
     val messages: List<Message>
+
+    /**
+     * Assets tracked in the conversation.
+     */
+    val assetTracker: AssetTracker
+
+    /**
+     * All assets visible in this conversation.
+     *
+     * Combines assets from:
+     * 1. The conversation's assetTracker (first, explicit tracking)
+     * 2. Assets from all messages (e.g., AssistantMessage assets)
+     *
+     * Assets are deduplicated by ID - tracker assets take priority.
+     */
+    override val assets: List<Asset>
+        get() {
+            val messageAssets = messages
+                .filterIsInstance<AssetView>()
+                .flatMap { it.assets }
+            return MergedAssetView(assetTracker, AssetView.of(messageAssets)).assets
+        }
 
     /**
      * Non-null if the conversation has messages and the last message is from the user.
      */
-    fun lastMessageMustBeFromUser(): UserMessage? = messages.lastOrNull() as? UserMessage
+    fun lastMessageIfBeFromUser(): UserMessage? = messages.lastOrNull() as? UserMessage
 
     /**
-     * Modify the state of this conversation
-     * This method is mutable, and returns itself only for convenience
+     * Modify the state of this conversation.
+     * Return the newly added message for convenience.
      */
-    fun addMessage(message: Message): Conversation
+    fun addMessage(message: Message): Message
 
+    /**
+     * Add a message with explicit author attribution.
+     * Useful for group chats or when the author differs per message.
+     *
+     * @param message the message to add
+     * @param author the author of this message (null for system/assistant messages)
+     * @return the newly added message
+     */
+    fun addMessageFrom(message: Message, author: User?): Message = addMessage(message)
+
+    /**
+     * Add a message with explicit author and recipient.
+     * Use this for multi-party chats where both sender and receiver need to be specified.
+     *
+     * @param message the message to add
+     * @param from the author of this message (who sent it)
+     * @param to the recipient of this message (who should receive it)
+     * @return the newly added message
+     */
+    fun addMessageFromTo(message: Message, from: User?, to: User?): Message = addMessage(message)
+
+    /**
+     * Prompt contributor that represents the conversation so far.
+     * Usually we will want to add messages from the conversation to a prompt
+     * instead of formatting the conversation
+     */
     fun promptContributor(
         conversationFormatter: ConversationFormatter = WindowingConversationFormatter(),
     ) = PromptContributor.dynamic({ "Conversation so far:\n" + conversationFormatter.format(this) })
@@ -53,82 +102,10 @@ interface Conversation : StableIdentified, HasInfoString {
     ): String {
         return promptContributor().contribution()
     }
-}
 
-/**
- * Role of the message sender.
- * For visible messages, not user messages.
- */
-enum class Role {
-    USER,
-    ASSISTANT,
-    SYSTEM,
-}
-
-/**
- * Message class for agent system
- * @param role Role of the message sender. AI system specific
- * @param content Content of the message
- * @param name of the sender, if available
- */
-sealed class Message(
-    val role: Role,
-    override val content: String,
-    val name: String? = null,
-    override val timestamp: Instant = Instant.now(),
-) : HasContent, Timestamped {
-
-    val sender: String get() = name ?: role.name.lowercase().replaceFirstChar { it.uppercase() }
-}
-
-/**
- * Message sent by the user.
- * @param content Content of the message
- * @param name Name of the user, if available
- */
-class UserMessage @JvmOverloads constructor(
-    content: String,
-    name: String? = null,
-    override val timestamp: Instant = Instant.now(),
-) : Message(role = Role.USER, content = content, name = name, timestamp = timestamp) {
-
-    override fun toString(): String {
-        return "UserMessage(from='${sender}', content='${trim(content, 80, 10)}')"
-    }
-}
-
-/**
- * Message sent by the assistant.
- * @param content Content of the message
- * @param name Name of the assistant, if available
- */
-open class AssistantMessage @JvmOverloads constructor(
-    content: String,
-    name: String? = null,
-    override val timestamp: Instant = Instant.now(),
-) : Message(role = Role.ASSISTANT, content = content, name = name, timestamp = timestamp) {
-
-    override fun toString(): String {
-        return "AssistantMessage(from='${sender}', content='${trim(content, 80, 10)}')"
-    }
-}
-
-class SystemMessage @JvmOverloads constructor(
-    content: String,
-    override val timestamp: Instant = Instant.now(),
-) : Message(role = Role.SYSTEM, content = content, name = null, timestamp = timestamp) {
-
-    override fun toString(): String {
-        return "SystemMessage(content='${trim(content, 80, 10)}')"
-    }
+    /**
+     * Create a nonpersistent conversation with the last n messages from this conversation.
+     */
+    infix fun last(n: Int): Conversation
 
 }
-
-/**
- * Assistant message resulting from an agentic execution
- */
-class AgenticResultAssistantMessage(
-    val agentProcessExecution: AgentProcessExecution,
-    content: String,
-    name: String? = null,
-) : AssistantMessage(content = content, name = name)

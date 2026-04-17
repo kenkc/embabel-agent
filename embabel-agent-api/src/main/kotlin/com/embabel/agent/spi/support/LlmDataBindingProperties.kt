@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,10 @@
  */
 package com.embabel.agent.spi.support
 
-import com.embabel.agent.common.RetryTemplateProvider
+import com.embabel.agent.api.tool.ToolControlFlowSignal
+import com.embabel.agent.api.validation.guardrails.GuardRailViolationException
+import com.embabel.agent.core.ReplanRequestedException
+import com.embabel.agent.spi.common.RetryTemplateProvider
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.retry.RetryCallback
@@ -27,34 +30,42 @@ import java.time.Duration
 /**
  * We want to be more forgiving with data binding. This
  * can be important for smaller models.
+ * @param maxAttempts Maximum retry attempts for data binding
+ * @param fixedBackoffMillis Fixed backoff time in milliseconds between retries
+ * @param sendValidationInfo Should we send validation info to the LLM in every request,
+ * even before a validation error occurs?
  */
 @ConfigurationProperties(prefix = "embabel.agent.platform.llm-operations.data-binding")
-class LlmDataBindingProperties : RetryTemplateProvider {
+class LlmDataBindingProperties(
+    override val maxAttempts: Int = 10,
+    val fixedBackoffMillis: Long = 30L,
+    val sendValidationInfo: Boolean = true,
+) : RetryTemplateProvider {
+
     private val logger = LoggerFactory.getLogger(LlmDataBindingProperties::class.java)
-
-    /**
-     * Maximum retry attempts for data binding
-     */
-    override var maxAttempts: Int = 10
-
-    /**
-     * Fixed backoff time in milliseconds between retries
-     */
-    var fixedBackoffMillis: Long = 30L
 
     override fun retryTemplate(name: String): RetryTemplate {
         return RetryTemplate.builder()
             .maxAttempts(maxAttempts)
             .fixedBackoff(Duration.ofMillis(fixedBackoffMillis))
+            // ReplanRequestedException is a control flow signal, not an error to retry
+            .notRetryOn(ReplanRequestedException::class.java)
+            // GuardRailViolationException is a policy decision, not a transient error to retry
+            .notRetryOn(GuardRailViolationException::class.java)
             .withListener(object : RetryListener {
                 override fun <T : Any, E : Throwable> onError(
                     context: RetryContext,
                     callback: RetryCallback<T, E>,
                     throwable: Throwable,
                 ) {
+                    // ToolControlFlowSignal exceptions (ReplanRequestedException, UserInputRequiredException, etc.)
+                    // are control flow signals, not errors to retry - rethrow to abort retry
+                    if (throwable is ToolControlFlowSignal) {
+                        throw throwable
+                    }
                     if (isRateLimitError(throwable)) {
                         logger.info(
-                            "🔒 LLM invocation {} RATE LIMITED: Retry attempt {} of {}",
+                            "LLM invocation {} RATE LIMITED: Retry attempt {} of {}",
                             name,
                             context.retryCount,
                             maxAttempts,

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,24 +16,33 @@
 package com.embabel.agent.api.common;
 
 import com.embabel.agent.spi.support.ExecutorAsyncer;
-import org.junit.jupiter.api.Test;
-
 import java.util.List;
 import java.util.concurrent.Executors;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Check that mapper functionality works as expected in Java.
  */
 class JavaAsyncerTest {
 
-    @Test
-    void testMappingFromJava() {
-        var executor = Executors.newFixedThreadPool(10);
+   @Test
+   void mappingFromJava() {
 
-        var asyncer = new ExecutorAsyncer(executor);
-        var things = List.of("a", "b", "c");
-        var mapped = asyncer.parallelMap(things, 10, String::toUpperCase);
+      // Prepare
+      var executor = Executors.newFixedThreadPool(10);
+      var asyncer = new ExecutorAsyncer(executor);
+      var things = List.of("a", "b", "c");
 
-    }
+      // Execute
+      var mapped = asyncer.parallelMap(things, 10, String::toUpperCase);
 
+      // Verify
+      assertEquals(things.size(), mapped.size());
+      for (final String thing : things) {
+         assertTrue(mapped.contains(thing.toUpperCase()));
+      }
+   }
 }

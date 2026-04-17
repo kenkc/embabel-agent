@@ -2,12 +2,12 @@
 
 ## Lower level module for planning and scheduling. Used by Embabel Agent Platform.
 
-
 ## A* GOAP Planner Algorithm Overview
 
-
-The A* GOAP (Goal-Oriented Action Planning) Planner is an implementation of the A* search algorithm specifically designed for planning sequences of actions to achieve specified goals.
-The algorithm efficiently finds the optimal path from an initial world state to a goal state by exploring potential action sequences and minimizing overall cost.
+The A* GOAP (Goal-Oriented Action Planning) Planner is an implementation of the A* search algorithm specifically
+designed for planning sequences of actions to achieve specified goals.
+The algorithm efficiently finds the optimal path from an initial world state to a goal state by exploring potential
+action sequences and minimizing overall cost.
 
 ### Core Algorithm Components
 
@@ -32,19 +32,18 @@ The A* search algorithm operates by maintaining:
 ### Process Flow
 
 1. Initialization:
-   - Begin with the start state in the open list
-   - Set its g-score to 0 and calculate its h-score
+    - Begin with the start state in the open list
+    - Set its g-score to 0 and calculate its h-score
 2. Main Loop:
-   - While the Open List is not empty:
+    - While the Open List is not empty:
     - Select the state with the lowest f-score from the open list
     - If this state satisfies the goal, construct and return the plan
     - Otherwise, mark the state as processed (add to closed set)
     - For each applicable action, generate the next state and add to open list if it better than existing paths
 3. Path Reconstruction:
    When a goal state is found, reconstruct the path by following predecessors
-   - Create a plan consisting of the sequence of actions
-      Reference: [AStarGoapPlanner](goap/AStarGoapPlanner.kt):planToGoalFrom:
-       
+    - Create a plan consisting of the sequence of actions
+      Reference: [AStarGoapPlanner](goap/astar/AStarGoapPlanner.kt):planToGoalFrom:
 
 ### Forward and Backward Planning Optimization
 
@@ -54,12 +53,13 @@ The planner implements a two-pass optimization strategy to eliminate unnecessary
 
 This pass works backward from the goal conditions to identify only actions that contribute to achieving the goal
 
-Reference: [AStarGoapPlanner](goap/AStarGoapPlanner.kt):_backwardPlanningOptimization_
+Reference: [AStarGoapPlanner](goap/astar/AStarGoapPlanner.kt):_backwardPlanningOptimization_
+
 2. Forward Planning Optimization
 
 This pass simulates the plan from the start state and removes actions that don't make progress toward the goal:
 
-Reference: [AStarGoapPlanner](goap/AStarGoapPlanner.kt):_forwardPlanningOptimization_
+Reference: [AStarGoapPlanner](goap/astar/AStarGoapPlanner.kt):_forwardPlanningOptimization_
 
 3. Plan Simulation
 
@@ -105,13 +105,15 @@ When pruning an agent for specific goals:
 4. Keep only actions that appear in at least one plan
 5. Create a new agent with the pruned action set
 
-This comprehensive approach ensures agents contain only the actions necessary to achieve their designated goals, improving efficiency and preventing action leakage between different
+This comprehensive approach ensures agents contain only the actions necessary to achieve their designated goals,
+improving efficiency and preventing action leakage between different
 agents.
 
 ### Progress Determination Logic in A* GOAP Planning
 
-The progress determination logic in method **forwardPlanningOptimization** is a critical part of the forward planning optimization in the A* GOAP algorithm. This logic ensures that only actions that meaningfully progress the
-state toward the goal are included in the final plan. 
+The progress determination logic in method **forwardPlanningOptimization** is a critical part of the forward planning
+optimization in the A* GOAP algorithm. This logic ensures that only actions that meaningfully progress the
+state toward the goal are included in the final plan.
 
 #### Progress Determination Expression
 
@@ -124,26 +126,27 @@ state toward the goal are included in the final plan.
 
 #### Detailed Explanation
 
-The expression evaluates to true only when an action makes meaningful progress toward achieving the goal state. Let's break down each component:
+The expression evaluates to true only when an action makes meaningful progress toward achieving the goal state. Let's
+break down each component:
 
 1. nextState != currentState
-   - Verifies that the action actually changes the world state
-   - Prevents including actions that have no effect
+    - Verifies that the action actually changes the world state
+    - Prevents including actions that have no effect
 2. action.effects.any { ... }
-   - Examines each effect the action produces
-   - Returns true if ANY effect satisfies the inner condition
+    - Examines each effect the action produces
+    - Returns true if ANY effect satisfies the inner condition
 3. goal.preconditions.containsKey(key)
-   - Ensures we only consider effects that relate to conditions required by the goal
-   - Ignores effects that modify conditions irrelevant to our goal
+    - Ensures we only consider effects that relate to conditions required by the goal
+    - Ignores effects that modify conditions irrelevant to our goal
 4. currentState[key] != goal.preconditions[key]
-   - Checks that the current condition value differs from what the goal requires
-   - Only counts progress if we're changing a condition that needs changing
+    - Checks that the current condition value differs from what the goal requires
+    - Only counts progress if we're changing a condition that needs changing
 5. (value == goal.preconditions[key] || key not in nextState)
-   - This checks one of two possible ways an action can make progress:
-   - value == goal.preconditions[key]
+    - This checks one of two possible ways an action can make progress:
+    - value == goal.preconditions[key]
     - The action changes the condition to exactly match what the goal requires
     - Direct progress toward goal achievement
-      - key not in nextState
-        - The action removes the condition from the state entirely
+        - key not in nextState
+            - The action removes the condition from the state entirely
     - This is considered progress if the condition was previously in an incorrect state
     - Allows for actions that clear obstacles or reset conditions

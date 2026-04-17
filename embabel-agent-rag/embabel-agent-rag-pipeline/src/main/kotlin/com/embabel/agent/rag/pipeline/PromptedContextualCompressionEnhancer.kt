@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,19 +16,12 @@
 package com.embabel.agent.rag.pipeline
 
 import com.embabel.agent.api.common.OperationContext
-import com.embabel.agent.rag.*
+import com.embabel.agent.rag.model.Chunk
+import com.embabel.agent.rag.service.*
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.core.types.SimpleSimilaritySearchResult
 import com.fasterxml.jackson.annotation.JsonPropertyDescription
 import org.slf4j.LoggerFactory
-
-// TODO could we not compress all chunks together?
-
-// What about the concept of adding notes to the context
-// Keep them fixed size
-
-// Also memory of user - Note that memory is not something we normally care about
-// Maintain several named notes. They can be persisted
 
 /**
  *  Question-aware compression using an LLM call.
@@ -67,7 +60,7 @@ class PromptedContextualCompressionEnhancer(
                     logger.debug("Discarding irrelevant content")
                     null
                 } else {
-                    val compressedChunk = chunk.transform(
+                    val compressedChunk = chunk.withText(
                         compressionResult.compressed
                         // Add compression metadata
 //                    contextualRelevance = ZeroToOne(assessCompressionQuality(compressed, query))

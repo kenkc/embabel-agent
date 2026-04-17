@@ -7,32 +7,93 @@ Annotate your Spring Boot application class to get agentic behavior.
 
 Example:
 
+[tabs]
+====
+Java::
++
 [source,java]
 ----
 @SpringBootApplication
-@EnableAgents(
-    loggingTheme = LoggingThemes.STAR_WARS,
-    localModels = { "docker" },
-    mcpClients = { "docker" }
-)
-class MyAgentApplication {
+public class MyAgentApplication {
     public static void main(String[] args) {
         SpringApplication.run(MyAgentApplication.class, args);
     }
 }
 ----
 
+Kotlin::
++
+[source,kotlin]
+----
+@SpringBootApplication
+class MyAgentApplication
+
+fun main(args: Array<String>) {
+    runApplication<MyAgentApplication>(*args)
+}
+----
+====
+
 This is a normal Spring Boot application class.
 You can add other Spring Boot annotations as needed.
-`@EnableAgents` enables the agent framework.
-It allows you to specify a logging theme (optional) and well-known sources of local models and MCP tools.
-In this case we're using Docker as a source of local models and MCP tools.
+
+You also need to add the <<reference.environment_setup,dependency and configuration for your LLM provider(s) of choice>>.
 
 ==== Configuration Properties
 
 The following table lists all available configuration properties in Embabel Agent Platform.
 Properties are organized by their configuration prefix and include default values where applicable.
 They can be set via `application.properties`, `application.yml`, profile-specific configuration files or environment variables, as per standard Spring configuration practices.
+
+===== Setting default LLM and roles
+
+From `ConfigurableModelProviderProperties` - configuration for default LLMs and role-based model selection.
+
+[cols="3,2,1,4",options="header"]
+|===
+|Property |Type |Default |Description
+
+|`embabel.models.default-llm`
+|String
+|`gpt-4.1-mini`
+|Default LLM name. It's good practice to override this in configuration.
+
+|`embabel.models.default-embedding-model`
+|String
+|`null`
+|Default embedding model name. Need not be set, in which case it defaults to null.
+
+|`embabel.models.llms`
+|Map<String, String>
+|`{}`
+|Map of role to LLM name. Each entry will require an LLM to be registered with the same name. May not include the default LLM.
+
+|`embabel.models.embedding-services`
+|Map<String, String>
+|`{}`
+|Map of role to embedding service name. Does not need to include the default embedding service. You can create as many roles as you wish.
+
+|===
+
+Role-based model selection allows you to assign specific LLMs or embedding services to different roles within your application.
+For example:
+
+[source,yaml]
+----
+embabel:
+  models:
+    default-llm: gpt-4o-mini
+    default-embedding-model: text-embedding-3-small
+    llms:
+      cheapest: gpt-4o-mini
+      best: gpt-4o
+      reasoning: o1-preview
+    embedding-services:
+      fast: text-embedding-3-small
+      accurate: text-embedding-3-large
+----
+
+It's good practice to decouple your code from specific models in this way.
 
 ===== Platform Configuration
 
@@ -53,6 +114,52 @@ From `AgentPlatformProperties` - unified configuration for all agent platform pr
 |Platform description
 
 |===
+
+===== Logging Personality
+
+Configuration for agent logging output style and theming.
+
+[cols="3,2,1,4",options="header"]
+|===
+|Property |Type |Default |Description
+
+|`embabel.agent.logging.personality`
+|String
+|_(none)_
+|Themed logging messages to add personality to agent output
+
+|===
+
+.Available Personality Values
+[cols="2,5",options="header"]
+|===
+|Value |Description
+
+|`starwars`
+|Star Wars themed logging messages
+
+|`severance`
+|Severance themed logging messages. Praise Kier
+
+|`colossus`
+|Colossus: The Forbin Project themed messages
+
+|`hitchhiker`
+|Hitchhiker's Guide to the Galaxy themed messages
+
+|`montypython`
+|Monty Python themed logging messages
+
+|===
+
+.Example Configuration
+[source,yaml]
+----
+embabel:
+  agent:
+    logging:
+      personality: hitchhiker
+----
 
 ===== Agent Scanning
 
@@ -136,6 +243,36 @@ From `AgentPlatformProperties.LlmOperationsConfig` - configuration for LLM opera
 |Long
 |`30`
 |Fixed backoff time in milliseconds between retries
+
+|===
+
+===== Tool Loop
+
+From `ToolLoopConfiguration` - configuration for tool loop execution.
+
+[cols="3,2,1,4",options="header"]
+|===
+|Property |Type |Default |Description
+
+|`embabel.agent.platform.toolloop.type`
+|String
+|`default`
+|Tool loop type: `default` (sequential) or `parallel` (experimental)
+
+|`embabel.agent.platform.toolloop.max-iterations`
+|Int
+|`20`
+|Maximum number of tool loop iterations
+
+|`embabel.agent.platform.toolloop.parallel.per-tool-timeout`
+|Duration
+|`30s`
+|Timeout for individual tool execution in parallel mode
+
+|`embabel.agent.platform.toolloop.parallel.batch-timeout`
+|Duration
+|`60s`
+|Timeout for entire batch of parallel tools
 
 |===
 
@@ -239,6 +376,154 @@ From `AgentPlatformProperties.ModelsConfig` - model provider integration configu
 |Maximum backoff interval in milliseconds
 
 |===
+
+====== Google GenAI (Native)
+
+Uses the native Google GenAI SDK (`spring-ai-google-genai`) for direct access to Gemini models with full feature support.
+
+[cols="3,2,1,4",options="header"]
+|===
+|Property |Type |Default |Description
+
+|`embabel.agent.platform.models.googlegenai.max-attempts`
+|Int
+|`10`
+|Maximum retry attempts
+
+|`embabel.agent.platform.models.googlegenai.backoff-millis`
+|Long
+|`5000`
+|Initial backoff time in milliseconds
+
+|`embabel.agent.platform.models.googlegenai.backoff-multiplier`
+|Double
+|`5.0`
+|Backoff multiplier
+
+|`embabel.agent.platform.models.googlegenai.backoff-max-interval`
+|Long
+|`180000`
+|Maximum backoff interval in milliseconds
+
+|===
+
+Google GenAI models (both LLM and embedding) are configured via the `embabel-agent-starter-google-genai` starter dependency.
+
+The following embedding models are available:
+
+[cols="2,3,1,1",options="header"]
+|===
+|Model Name |Model ID |Dimensions |Price (per 1M tokens)
+
+|`gemini_embedding_001`
+|`gemini-embedding-001`
+|3072
+|$0.15
+
+|===
+
+The following environment variables control authentication:
+
+[cols="2,4",options="header"]
+|===
+|Environment Variable |Description
+
+|`GOOGLE_API_KEY`
+|API key for Google AI Studio authentication
+
+|`GOOGLE_PROJECT_ID`
+|Google Cloud project ID (for Vertex AI authentication)
+
+|`GOOGLE_LOCATION`
+|Google Cloud region, e.g., `us-central1` (for Vertex AI authentication)
+
+|===
+
+NOTE: Either `GOOGLE_API_KEY` or both `GOOGLE_PROJECT_ID` and `GOOGLE_LOCATION` must be set.
+
+IMPORTANT: Gemini 3 models are only available in the `global` location on Vertex AI.
+To use Gemini 3 with Vertex AI, you must set `GOOGLE_LOCATION=global`.
+
+To add new Google GenAI embedding models, edit the configuration file:
+
+----
+embabel-agent-autoconfigure/models/embabel-agent-google-genai-autoconfigure/
+  src/main/resources/models/google-genai-models.yml
+----
+
+[source,yaml]
+----
+embedding_models:
+  - name: "gemini_embedding_001"
+    model_id: "gemini-embedding-001"
+    display_name: "Gemini Embedding 001"
+    dimensions: 3072
+    pricing_model:
+      usd_per1m_tokens: 0.15
+----
+
+===== HTTP Client Configuration
+
+From `NettyClientFactoryProperties` - configuration for the HTTP client used by model providers (OpenAI, Anthropic, etc.) when making API calls.
+
+Embabel uses Reactor Netty as the HTTP client for improved performance and non-blocking I/O.
+This is particularly important for LLM API calls which can have long response times.
+
+====== Dependency Requirement
+
+To use the Netty client, you must manually add the following autoconfiguration dependency to your project:
+
+[source,xml]
+----
+<dependency>
+    <groupId>com.embabel.agent</groupId>
+    <artifactId>embabel-agent-netty-client-autoconfigure</artifactId>
+</dependency>
+----
+
+For Gradle:
+
+[source,gradle]
+----
+implementation 'com.embabel.agent:embabel-agent-netty-client-autoconfigure'
+----
+
+[cols="3,2,1,4",options="header"]
+|===
+|Property |Type |Default |Description
+
+|`embabel.agent.platform.http-client.connect-timeout`
+|Duration
+|`25s`
+|Connection timeout for establishing HTTP connections to model providers
+
+|`embabel.agent.platform.http-client.read-timeout`
+|Duration
+|`1m`
+|Read timeout (response timeout) for receiving responses from model providers. Increase this value for models that generate long responses or when using extended thinking features.
+
+|===
+
+.Example Configuration
+[source,yaml]
+----
+embabel:
+  agent:
+    platform:
+      http-client:
+        connect-timeout: 10s
+        read-timeout: 10m
+----
+
+TIP: For models with extended thinking enabled (like Claude with thinking mode), consider increasing `read-timeout` to `10m` or higher to accommodate longer processing times.
+
+====== When to Adjust Timeouts
+
+* *Long-running LLM calls*: If you experience timeout errors during complex reasoning tasks, increase `read-timeout`
+* *Slow network environments*: Increase `connect-timeout` if connection establishment is failing
+* *Streaming responses*: The `read-timeout` applies to the initial response; streaming content has its own handling
+
+NOTE: The HTTP client configuration applies to all model providers that use Spring's `RestClient` and `WebClient`, including OpenAI, Anthropic, and OpenAI-compatible endpoints.
 
 ===== Server-Sent Events
 
@@ -374,6 +659,46 @@ From `BedrockProperties` - AWS Bedrock model configuration properties.
 
 |===
 
+====== ONNX Embeddings
+
+From `OnnxEmbeddingProperties` - configuration for local ONNX embedding models.
+
+[cols="3,2,1,4",options="header"]
+|===
+|Property |Type |Default |Description
+
+|`embabel.agent.platform.models.onnx.embeddings.enabled`
+|Boolean
+|`true`
+|Whether to enable ONNX embedding service
+
+|`embabel.agent.platform.models.onnx.embeddings.model-uri`
+|String
+|_(HuggingFace all-MiniLM-L6-v2)_
+|URI to the ONNX model file (HuggingFace URL or `file://` path)
+
+|`embabel.agent.platform.models.onnx.embeddings.tokenizer-uri`
+|String
+|_(HuggingFace all-MiniLM-L6-v2)_
+|URI to the tokenizer JSON file
+
+|`embabel.agent.platform.models.onnx.embeddings.dimensions`
+|Int
+|`384`
+|Embedding dimensions
+
+|`embabel.agent.platform.models.onnx.embeddings.model-name`
+|String
+|`all-MiniLM-L6-v2`
+|Name for the embedding model
+
+|`embabel.agent.platform.models.onnx.embeddings.cache-dir`
+|String
+|`~/.embabel/models`
+|Local cache directory for downloaded model files
+
+|===
+
 ====== Docker Local Models
 
 From `DockerProperties` - configuration for Docker local models (OpenAI-compatible).
@@ -406,53 +731,6 @@ From `DockerProperties` - configuration for Docker local models (OpenAI-compatib
 |Long
 |`180000`
 |Maximum backoff interval in milliseconds
-
-|===
-
-===== Migration Support
-
-From `DeprecatedPropertyScanningConfig` and `DeprecatedPropertyWarningConfig` - configuration for migrating from older versions of Embabel.
-
-NOTE: These properties will be removed before Embabel 1.0.0 release.
-
-[cols="3,2,1,4",options="header"]
-|===
-|Property |Type |Default |Description
-
-|`embabel.agent.platform.migration.scanning.enabled`
-|Boolean
-|`false`
-|Whether deprecated property scanning is enabled (disabled by default for production safety)
-
-|`embabel.agent.platform.migration.scanning.include-packages`
-|List<String>
-|`["com.embabel.agent", "com.embabel.agent.shell"]`
-|Base packages to scan for deprecated conditional annotations
-
-|`embabel.agent.platform.migration.scanning.exclude-packages`
-|List<String>
-|Extensive default list
-|Package prefixes to exclude from scanning
-
-|`embabel.agent.platform.migration.scanning.additional-excludes`
-|List<String>
-|`[]`
-|Additional user-specific packages to exclude
-
-|`embabel.agent.platform.migration.scanning.auto-exclude-jar-packages`
-|Boolean
-|`false`
-|Whether to automatically exclude JAR-based packages using classpath detection
-
-|`embabel.agent.platform.migration.scanning.max-scan-depth`
-|Int
-|`10`
-|Maximum depth for package scanning
-
-|`embabel.agent.platform.migration.warnings.individual-logging`
-|Boolean
-|`true`
-|Whether to enable individual warning logging. When false, only aggregated summary is logged
 
 |===
 

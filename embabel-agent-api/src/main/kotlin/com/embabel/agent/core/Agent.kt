@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,8 @@ import com.embabel.agent.api.common.StuckHandler
 import com.embabel.common.core.types.*
 import com.embabel.common.util.ComputerSaysNoSerializer
 import com.embabel.common.util.indentLines
-import com.embabel.plan.goap.GoapPlanningSystem
+import com.embabel.plan.PlanningSystem
+import com.embabel.plan.common.condition.ConditionPlanningSystem
 import com.fasterxml.jackson.databind.annotation.JsonSerialize
 import org.slf4j.LoggerFactory
 
@@ -47,7 +48,7 @@ data class Agent(
     override val conditions: Set<Condition> = emptySet(),
     override val actions: List<Action>,
     override val goals: Set<Goal>,
-    val stuckHandler: StuckHandler? = null,
+    override val stuckHandler: StuckHandler? = null,
     override val opaque: Boolean = false,
     override val domainTypes: Collection<DomainType> = mergeTypes(
         agentName = name,
@@ -86,7 +87,7 @@ data class Agent(
     /**
      * Return a version of the agent with actions and conditions pruned to the given pruned planning system.
      */
-    fun pruneTo(pruned: GoapPlanningSystem): Agent =
+    fun pruneTo(pruned: ConditionPlanningSystem): Agent =
         copy(
             actions = actions.filter { action -> pruned.actions.any { it.name == action.name } },
             conditions = conditions.filter { condition ->
@@ -94,11 +95,11 @@ data class Agent(
             }.toSet(),
         )
 
-    val planningSystem: GoapPlanningSystem
+    val planningSystem: PlanningSystem
         get() {
             val actions = actions.toSet()
             logger.debug(infoString())
-            return GoapPlanningSystem(actions, goals)
+            return ConditionPlanningSystem(actions, goals)
         }
 
     override fun infoString(
@@ -140,11 +141,11 @@ data class Agent(
                 .groupBy { it.name }
                 .mapValues { (_, types) ->
                     types.reduce { acc, type ->
-                        acc.copy(properties = acc.properties + type.properties)
+                        acc.copy(ownProperties = acc.properties + type.properties)
                     }
                 }
                 .values)
-                .map { it.copy(properties = it.properties.distinctBy { it.name }) }
+                .map { it.copy(ownProperties = it.properties.distinctBy { it.name }) }
                 .distinctBy { it.name }
                 .sortedBy { it.name }
 

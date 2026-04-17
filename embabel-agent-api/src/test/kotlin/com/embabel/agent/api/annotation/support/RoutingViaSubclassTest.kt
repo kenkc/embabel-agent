@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,15 +19,13 @@ import com.embabel.agent.core.Agent
 import com.embabel.agent.core.AgentProcessStatusCode
 import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.domain.io.UserInput
-import com.embabel.agent.testing.integration.IntegrationTestUtils
+import com.embabel.agent.test.integration.IntegrationTestUtils
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 
 /**
  * Test for routing via subclassing.
  */
-@Disabled("Known issue: see Issue #631")
 class RoutingViaSubclassTest {
 
     @Test

@@ -1,0 +1,255 @@
+/*
+ * Copyright 2024-2026 Embabel Pty Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.embabel.agent.core
+
+import com.embabel.agent.api.common.TerminationScope
+import com.embabel.agent.api.tool.Tool
+import com.embabel.common.core.types.AssetCoordinates
+import com.embabel.common.core.types.HasInfoString
+import com.embabel.common.core.types.Semver
+import com.embabel.common.util.indent
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize
+
+interface ToolGroupDescription {
+
+    /**
+     * Natural language description of the tool group.
+     * May be used by an LLM to choose tool groups so should be informative.
+     * Tool groups with the same role should have similar descriptions,
+     * although they should call out any unique features.
+     */
+    val description: String
+
+    /**
+     * Role of the tool group. Many tool groups can provide this
+     * Multiple tool groups can provide the same role,
+     * for example with different QoS.
+     */
+    val role: String
+
+    /**
+     * Optional usage notes shown to the LLM when this tool group is unfolded.
+     * Used to guide the LLM on how to use the inner tools effectively.
+     * Propagated to [com.embabel.agent.api.tool.progressive.UnfoldingTool.childToolUsageNotes].
+     */
+    val childToolUsageNotes: String?
+        get() = null
+
+    companion object {
+
+        operator fun invoke(
+            description: String,
+            role: String,
+            childToolUsageNotes: String? = null,
+        ): ToolGroupDescription = ToolGroupDescriptionImpl(
+            description = description,
+            role = role,
+            childToolUsageNotes = childToolUsageNotes,
+        )
+
+        @JvmStatic
+        fun create(
+            description: String,
+            role: String,
+        ): ToolGroupDescription = invoke(
+            description = description,
+            role = role,
+        )
+    }
+
+}
+
+private data class ToolGroupDescriptionImpl(
+    override val description: String,
+    override val role: String,
+    override val childToolUsageNotes: String? = null,
+) : ToolGroupDescription
+
+enum class ToolGroupPermission {
+    /**
+     * Tool group can be used to modify local resources.
+     * This is a strong permission and should be used with caution.
+     */
+    HOST_ACCESS,
+
+    /**
+     * Tool group accesses the internet.
+     */
+    INTERNET_ACCESS,
+}
+
+/**
+ * Metadata about a tool group. Interface as platforms
+ * may extend it
+ */
+@JsonDeserialize(`as` = MinimalToolGroupMetadata::class)
+interface ToolGroupMetadata : ToolGroupDescription, AssetCoordinates, HasInfoString {
+
+    /**
+     * What this tool group's tools are allowed to do.
+     */
+    val permissions: Set<ToolGroupPermission>
+
+    companion object {
+        operator fun invoke(
+            description: String,
+            role: String,
+            name: String,
+            provider: String,
+            permissions: Set<ToolGroupPermission>,
+            version: Semver = Semver(),
+        ): ToolGroupMetadata = MinimalToolGroupMetadata(
+            description = description,
+            role = role,
+            name = name,
+            provider = provider,
+            permissions = permissions,
+            version = version,
+        )
+
+        operator fun invoke(
+            description: ToolGroupDescription,
+            name: String,
+            provider: String,
+            permissions: Set<ToolGroupPermission>,
+            version: Semver = Semver(),
+        ): ToolGroupMetadata = MinimalToolGroupMetadata(
+            description = description.description,
+            role = description.role,
+            name = name,
+            provider = provider,
+            permissions = permissions,
+            version = version,
+        )
+    }
+
+}
+
+/**
+ * Specifies a tool group that a tool consumer requires.
+ * @param requiredToolNames optional set of tool names that must be present in the resolved group.
+ * When non-empty, resolution throws an exception if the group is not found or any required tool name is absent.
+ * An empty set (default) preserves backward-compatible behavior: a missing group is logged and tolerated.
+ * @param terminationScope controls the exception type thrown when required tools are missing.
+ * When null (default), throws [com.embabel.agent.spi.loop.RequiredToolGroupException].
+ * When [TerminationScope.AGENT], throws [com.embabel.agent.api.tool.TerminateAgentException].
+ * When [TerminationScope.ACTION], throws [com.embabel.agent.api.tool.TerminateActionException].
+ */
+data class ToolGroupRequirement(
+    val role: String,
+    val requiredToolNames: Set<String> = emptySet(),
+    val terminationScope: TerminationScope? = null,
+)
+
+interface ToolGroupConsumer {
+
+    /**
+     * Tool groups exposed. This will include directly registered tool groups
+     * and tool groups resolved from ToolGroups.
+     */
+    val toolGroups: Set<ToolGroupRequirement>
+}
+
+/**
+ * A group of tools to accomplish a purpose, such as web search.
+ * Introduces a level of abstraction over tools.
+ */
+interface ToolGroup : ToolPublisher, HasInfoString {
+
+    val metadata: ToolGroupMetadata
+
+    /**
+     * Default tools implementation returns empty list.
+     * Override to provide native Tool instances.
+     */
+    override val tools: List<Tool>
+        get() = emptyList()
+
+    companion object {
+
+        /**
+         * Create a ToolGroup from native Tools.
+         */
+        operator fun invoke(
+            metadata: ToolGroupMetadata,
+            tools: List<Tool>,
+        ): ToolGroup = ToolGroupImpl(
+            metadata = metadata,
+            tools = tools,
+        )
+
+        /**
+         * Create a ToolGroup from native Tools.
+         */
+        fun ofTools(
+            metadata: ToolGroupMetadata,
+            tools: List<Tool>,
+        ): ToolGroup = ToolGroupImpl(
+            metadata = metadata,
+            tools = tools,
+        )
+    }
+
+    override fun infoString(
+        verbose: Boolean?,
+        indent: Int,
+    ): String {
+        // Do NOT access `tools` unless verbose=true is explicitly requested.
+        // For MCP-backed groups, `tools` is a lazy property whose first access
+        // triggers the MCP client handshake. Accessing it unconditionally — even
+        // just to check isEmpty() — defeats just-in-time initialization.
+        if (verbose != true) {
+            return metadata.infoString(verbose = false)
+        }
+        val allToolNames = tools.map { it.definition.name }
+        if (allToolNames.isEmpty()) {
+            return metadata.infoString(verbose = true, indent = 1) + "- No tools found".indent(1)
+        }
+        return metadata.infoString(verbose = true, indent = 1) + " - " +
+                allToolNames.sorted().joinToString().indent(1)
+    }
+}
+
+private data class ToolGroupImpl(
+    override val metadata: ToolGroupMetadata,
+    override val tools: List<Tool>,
+) : ToolGroup
+
+/**
+ * Resolution of a tool group request
+ * @param failureMessage Failure message in case we could not resolve this group.
+ */
+data class ToolGroupResolution(
+    val resolvedToolGroup: ToolGroup?,
+    val failureMessage: String? = null,
+)
+
+private data class MinimalToolGroupMetadata(
+    override val description: String,
+    override val role: String,
+    override val name: String,
+    override val provider: String,
+    override val permissions: Set<ToolGroupPermission>,
+    override val version: Semver,
+) : ToolGroupMetadata {
+
+    override fun infoString(
+        verbose: Boolean?,
+        indent: Int,
+    ): String {
+        return "role:$role, artifact:$name, version:$version, provider:$provider - $description".indent(indent)
+    }
+}

@@ -27,3 +27,862 @@ TIP: Trial and error is your friend.
 Embabel makes it easy to switch LLMs; try the cheapest thing that could work and switch if it doesn't.
 
 
+[[reference.llms.custom-integration]]
+==== Advanced: Custom LLM Integration
+
+NOTE: If you want to use a standard provider (Anthropic, OpenAI, DeepSeek, Mistral) with a
+user-supplied key at runtime, see <<reference.customizing.byok>>.
+That is the recommended path for BYOK scenarios.
+This section covers implementing `LlmMessageSender` from scratch for providers not otherwise
+supported by Embabel.
+
+Embabel's tool loop is framework-agnostic, allowing you to integrate any LLM provider by implementing the `LlmMessageSender` interface.
+This is useful when:
+
+- You want to use an LLM provider not supported by Spring AI
+- You need custom request/response handling
+- You're integrating with a proprietary or internal LLM service
+
+===== The LlmMessageSender Interface
+
+The core abstraction is the `LlmMessageSender` functional interface:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@FunctionalInterface
+public interface LlmMessageSender {
+    LlmMessageResponse call(
+        List<Message> messages,
+        List<Tool> tools
+    );
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+fun interface LlmMessageSender {
+    fun call(
+        messages: List<Message>,
+        tools: List<Tool>,
+    ): LlmMessageResponse
+}
+----
+====
+
+The implementation makes a single LLM inference call and returns the response.
+Importantly, it does **not** execute tools--it only returns any tool call requests from the LLM.
+Tool execution is handled by Embabel's `DefaultToolLoop`.
+
+NOTE: Even more advanced control over tools execution is available - tools can be executed in parallel, controlled by  `ParallelToolLoop`. In order to activate `ParallelToolLoop`, please set the following parameter:
+```
+embabel.agent.platform.toolloop.type=parallel
+```
+
+For full list of tool loop configuration parameters please refer to `ToolLoopConfiguration`.
+
+===== Tool-Not-Found Recovery Policy
+
+When the LLM calls a tool by a name that doesn't exist in the available set, the behavior is controlled by `ToolNotFoundPolicy`.
+
+Two built-in policies are provided:
+
+- **`AutoCorrectionPolicy`** (default) — feeds the error back to the LLM so it can self-correct. Uses case-insensitive fuzzy matching to suggest corrections for hallucinated tool names (e.g., `ragbot_vectorSearch` → suggests `vectorSearch`). When multiple candidates match, all are listed. Throws `ToolNotFoundException` after 3 consecutive failures.
+- **`ImmediateThrowPolicy`** — throws `ToolNotFoundException` immediately.
+
+The system-wide default is `AutoCorrectionPolicy`, provided as a Spring bean with `@ConditionalOnMissingBean`.
+To override it globally, define your own `ToolNotFoundPolicy` bean.
+
+For per-interaction control, use `withToolNotFoundPolicy()` on `PromptRunner`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+promptRunner
+    .withToolNotFoundPolicy(new AutoCorrectionPolicy(5))
+    .creating(MyOutput.class)
+    .create(messages);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+promptRunner
+    .withToolNotFoundPolicy(AutoCorrectionPolicy(maxRetries = 5))
+    .creating(MyOutput::class.java)
+    .create(messages)
+----
+====
+
+Custom policies can be implemented by implementing the `ToolNotFoundPolicy` interface:
+
+[source,kotlin]
+----
+class MyEditDistancePolicy : ToolNotFoundPolicy {
+    override fun handle(requestedName: String, availableTools: List<Tool>): ToolNotFoundAction {
+        // Custom recovery logic, e.g. edit-distance matching
+        ...
+    }
+}
+----
+
+===== Response Types
+
+The `LlmMessageResponse` contains:
+
+- `message`: The LLM's response as an Embabel `Message`
+- `textContent`: Text content from the response
+- `usage`: Optional token usage information
+
+For responses that include tool calls, return an `AssistantMessageWithToolCalls`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public record ToolCall(
+    String id,         // Unique identifier for the tool call
+    String name,       // Name of the tool to invoke
+    String arguments   // JSON arguments for the tool
+) {}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+data class ToolCall(
+    val id: String,      // Unique identifier for the tool call
+    val name: String,    // Name of the tool to invoke
+    val arguments: String, // JSON arguments for the tool
+)
+----
+====
+
+===== Example: Custom LLM Provider
+
+Here's an example of implementing `LlmMessageSender` for a hypothetical HTTP-based LLM API:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public class MyCustomLlmMessageSender implements LlmMessageSender {
+
+    private final HttpClient httpClient;
+    private final String apiKey;
+    private final String model;
+
+    public MyCustomLlmMessageSender(HttpClient httpClient, String apiKey, String model) {
+        this.httpClient = httpClient;
+        this.apiKey = apiKey;
+        this.model = model;
+    }
+
+    @Override
+    public LlmMessageResponse call(List<Message> messages, List<Tool> tools) {
+        // Convert Embabel messages to your API's format
+        List<Map<String, Object>> apiMessages = messages.stream()
+            .map(message -> Map.<String, Object>of(
+                "role", message.getRole().name().toLowerCase(),
+                "content", message.getTextContent()
+            ))
+            .toList();
+
+        // Convert tool definitions to your API's format
+        List<Map<String, Object>> apiTools = tools.stream()
+            .map(tool -> Map.<String, Object>of(
+                "name", tool.getDefinition().getName(),
+                "description", tool.getDefinition().getDescription(),
+                "parameters", tool.getDefinition().getInputSchema().jsonSchema()
+            ))
+            .toList();
+
+        // Make API request (using your preferred HTTP client)
+        MyApiResponse responseBody = httpClient.post("https://api.my-llm.com/chat")
+            .header("Authorization", "Bearer " + apiKey)
+            .body(Map.of(
+                "model", model,
+                "messages", apiMessages,
+                "tools", apiTools.isEmpty() ? null : apiTools
+            ))
+            .execute(MyApiResponse.class);
+
+        // Check if LLM requested tool calls
+        List<ToolCall> toolCalls = null;
+        if (responseBody.getToolCalls() != null) {
+            toolCalls = responseBody.getToolCalls().stream()
+                .map(call -> new ToolCall(
+                    call.getId(),
+                    call.getFunction().getName(),
+                    call.getFunction().getArguments()
+                ))
+                .toList();
+        }
+
+        Message embabelMessage;
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            embabelMessage = new AssistantMessage(
+                responseBody.getContent() != null ? responseBody.getContent() : ""
+            );
+        } else {
+            embabelMessage = new AssistantMessageWithToolCalls(
+                responseBody.getContent() != null ? responseBody.getContent() : "",
+                toolCalls
+            );
+        }
+
+        Usage usage = null;
+        if (responseBody.getUsage() != null) {
+            usage = new Usage(
+                responseBody.getUsage().getPromptTokens(),
+                responseBody.getUsage().getCompletionTokens()
+            );
+        }
+
+        return new LlmMessageResponse(embabelMessage, responseBody.getContent(), usage);
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+class MyCustomLlmMessageSender(
+    private val httpClient: HttpClient,
+    private val apiKey: String,
+    private val model: String,
+) : LlmMessageSender {
+
+    override fun call(
+        messages: List<Message>,
+        tools: List<Tool>,
+    ): LlmMessageResponse {
+        // Convert Embabel messages to your API's format
+        val apiMessages = messages.map { message ->
+            mapOf(
+                "role" to message.role.name.lowercase(),
+                "content" to message.textContent
+            )
+        }
+
+        // Convert tool definitions to your API's format
+        val apiTools = tools.map { tool ->
+            mapOf(
+                "name" to tool.definition.name,
+                "description" to tool.definition.description,
+                "parameters" to tool.definition.inputSchema.jsonSchema()
+            )
+        }
+
+        // Make API request
+        val response = httpClient.post("https://api.my-llm.com/chat") {
+            header("Authorization", "Bearer $apiKey")
+            body = mapOf(
+                "model" to model,
+                "messages" to apiMessages,
+                "tools" to apiTools.ifEmpty { null }
+            )
+        }
+
+        // Parse response and convert to Embabel types
+        val responseBody = response.body<MyApiResponse>()
+
+        // Check if LLM requested tool calls
+        val toolCalls = responseBody.toolCalls?.map { call ->
+            ToolCall(
+                id = call.id,
+                name = call.function.name,
+                arguments = call.function.arguments
+            )
+        }
+
+        val embabelMessage = if (toolCalls.isNullOrEmpty()) {
+            AssistantMessage(responseBody.content ?: "")
+        } else {
+            AssistantMessageWithToolCalls(
+                content = responseBody.content ?: "",
+                toolCalls = toolCalls
+            )
+        }
+
+        return LlmMessageResponse(
+            message = embabelMessage,
+            textContent = responseBody.content ?: "",
+            usage = responseBody.usage?.let { u ->
+                Usage(
+                    inputTokens = u.promptTokens,
+                    outputTokens = u.completionTokens,
+                )
+            }
+        )
+    }
+}
+----
+====
+
+===== Creating an LlmService
+
+To make your custom LLM available through Embabel's `ModelProvider`, implement the `LlmService` interface:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public class MyCustomLlmService implements LlmService<MyCustomLlmService> {
+
+    private final String name;
+    private final String provider;
+    private final HttpClient httpClient;
+    private final String apiKey;
+    private final LocalDate knowledgeCutoffDate;
+    private final List<PromptContributor> promptContributors;
+    private final PricingModel pricingModel;
+
+    public MyCustomLlmService(
+            String name,
+            String provider,
+            HttpClient httpClient,
+            String apiKey,
+            LocalDate knowledgeCutoffDate,
+            PricingModel pricingModel) {
+        this.name = name;
+        this.provider = provider;
+        this.httpClient = httpClient;
+        this.apiKey = apiKey;
+        this.knowledgeCutoffDate = knowledgeCutoffDate;
+        this.promptContributors = knowledgeCutoffDate != null
+            ? List.of(new KnowledgeCutoffDate(knowledgeCutoffDate))
+            : List.of();
+        this.pricingModel = pricingModel;
+    }
+
+    @Override
+    public String getName() { return name; }
+
+    @Override
+    public String getProvider() { return provider; }
+
+    @Override
+    public LocalDate getKnowledgeCutoffDate() { return knowledgeCutoffDate; }
+
+    @Override
+    public List<PromptContributor> getPromptContributors() { return promptContributors; }
+
+    @Override
+    public PricingModel getPricingModel() { return pricingModel; }
+
+    @Override
+    public LlmMessageSender createMessageSender(LlmOptions options) {
+        return new MyCustomLlmMessageSender(
+            httpClient,
+            apiKey,
+            options.getModel() != null ? options.getModel() : name
+        );
+    }
+
+    @Override
+    public MyCustomLlmService withKnowledgeCutoffDate(LocalDate date) {
+        return new MyCustomLlmService(name, provider, httpClient, apiKey, date, pricingModel);
+    }
+
+    @Override
+    public MyCustomLlmService withPromptContributor(PromptContributor promptContributor) {
+        var newContributors = new ArrayList<>(promptContributors);
+        newContributors.add(promptContributor);
+        return new MyCustomLlmService(
+            name, provider, httpClient, apiKey, knowledgeCutoffDate,
+            newContributors, pricingModel
+        );
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+data class MyCustomLlmService(
+    override val name: String,
+    override val provider: String,
+    private val httpClient: HttpClient,
+    private val apiKey: String,
+    override val knowledgeCutoffDate: LocalDate? = null,
+    override val promptContributors: List<PromptContributor> =
+        buildList { knowledgeCutoffDate?.let { add(KnowledgeCutoffDate(it)) } },
+    override val pricingModel: PricingModel? = null,
+) : LlmService<MyCustomLlmService> {
+
+    override fun createMessageSender(options: LlmOptions): LlmMessageSender {
+        return MyCustomLlmMessageSender(
+            httpClient = httpClient,
+            apiKey = apiKey,
+            model = options.model ?: name,
+        )
+    }
+
+    override fun withKnowledgeCutoffDate(date: LocalDate): MyCustomLlmService =
+        copy(
+            knowledgeCutoffDate = date,
+            promptContributors = promptContributors + KnowledgeCutoffDate(date)
+        )
+
+    override fun withPromptContributor(promptContributor: PromptContributor): MyCustomLlmService =
+        copy(promptContributors = promptContributors + promptContributor)
+}
+----
+====
+
+Then register it as a Spring bean:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Configuration
+public class MyLlmConfiguration {
+
+    @Bean
+    public LlmService<?> myCustomLlm(
+            HttpClient httpClient,
+            @Value("${my-llm.api-key}") String apiKey) {
+        return new MyCustomLlmService(
+            "my-custom-model",
+            "MyProvider",
+            httpClient,
+            apiKey,
+            LocalDate.of(2024, 12, 1),
+            null
+        );
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Configuration
+class MyLlmConfiguration {
+
+    @Bean
+    fun myCustomLlm(
+        httpClient: HttpClient,
+        @Value("\${my-llm.api-key}") apiKey: String,
+    ): LlmService<*> = MyCustomLlmService(
+        name = "my-custom-model",
+        provider = "MyProvider",
+        httpClient = httpClient,
+        apiKey = apiKey,
+        knowledgeCutoffDate = LocalDate.of(2024, 12, 1),
+    )
+}
+----
+====
+
+The bean will be automatically discovered and made available through the `ModelProvider`.
+
+===== How Model Discovery and Selection Works
+
+When your application starts, `ConfigurableModelProvider` collects all `LlmService` beans from the Spring application context.
+Your custom LLM is matched by the `name` property you set on your `LlmService` implementation.
+
+**By name**: Use the `name` from your `LlmService` directly.
+This works with `@LlmCall`, `ai.withLlm()`, and `AgenticTool.withLlm()`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// In a declarative action
+@LlmCall(llm = "my-custom-model")
+String myAction();
+
+// In an imperative action
+ai.withLlm("my-custom-model")
+    .create("Tell me a joke", String.class);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// In a declarative action
+@LlmCall(llm = "my-custom-model")
+fun myAction(): String
+
+// In an imperative action
+ai.withLlm("my-custom-model")
+    .create<String>("Tell me a joke")
+----
+====
+
+**By role**: Map a role name to your model name in configuration, then reference it with the `#` prefix:
+
+[source,yaml]
+----
+embabel:
+  models:
+    default-llm: my-custom-model  # <1>
+    llms:
+      best: my-custom-model       # <2>
+      cheapest: my-small-model    # <3>
+----
+<1> Sets the default LLM used when no explicit model is specified
+<2> Maps the `best` role to your custom model
+<3> Maps the `cheapest` role to a different model
+
+Then reference roles with `#`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// By role
+@LlmCall(llm = "#best")
+String myAction();
+
+// Or programmatically
+ai.withLlmByRole("best")
+    .create("Tell me a joke", String.class);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// By role
+@LlmCall(llm = "#best")
+fun myAction(): String
+
+// Or programmatically
+ai.withLlmByRole("best")
+    .create<String>("Tell me a joke")
+----
+====
+
+NOTE: If no LLM is specified in `@LlmCall` or `withLlm()`, the `default-llm` from configuration is used.
+
+===== Using Your Custom Implementation (Alternative)
+
+If you need more control over the LLM operations layer itself, you can extend `ToolLoopLlmOperations`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public class MyCustomLlmOperations extends ToolLoopLlmOperations {
+
+    private final HttpClient httpClient;
+    private final String apiKey;
+
+    public MyCustomLlmOperations(
+            HttpClient httpClient,
+            String apiKey,
+            ModelProvider modelProvider,
+            ToolDecorator toolDecorator,
+            Validator validator) {
+        super(modelProvider, toolDecorator, validator);
+        this.httpClient = httpClient;
+        this.apiKey = apiKey;
+    }
+
+    @Override
+    protected LlmMessageSender createMessageSender(LlmService<?> llm, LlmOptions options) {
+        return new MyCustomLlmMessageSender(
+            httpClient,
+            apiKey,
+            options.getModel() != null ? options.getModel() : "default-model"
+        );
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+class MyCustomLlmOperations(
+    private val httpClient: HttpClient,
+    private val apiKey: String,
+    modelProvider: ModelProvider,
+    toolDecorator: ToolDecorator,
+    validator: Validator,
+) : ToolLoopLlmOperations(
+    modelProvider = modelProvider,
+    toolDecorator = toolDecorator,
+    validator = validator,
+) {
+    override fun createMessageSender(
+        llm: LlmService<*>,
+        options: LlmOptions,
+    ): LlmMessageSender {
+        return MyCustomLlmMessageSender(
+            httpClient = httpClient,
+            apiKey = apiKey,
+            model = options.model ?: "default-model",
+        )
+    }
+}
+----
+====
+
+The `ToolLoopLlmOperations` base class provides several extension points:
+
+- `createMessageSender()`: Create the LLM communication layer
+- `createOutputConverter()`: Parse LLM responses into typed objects
+- `sanitizeStringOutput()`: Clean up raw text responses
+- `emitCallEvent()`: Emit observability events
+
+===== Key Implementation Notes
+
+1. **Tool calls are not executed by your sender.** Just return the tool call requests--Embabel's tool loop handles execution and continuation.
+
+2. **Handle both tool and non-tool responses.** Return `AssistantMessage` for plain text, `AssistantMessageWithToolCalls` when the LLM wants to invoke tools.
+
+3. **Include usage information when available.** This enables cost tracking and observability.
+
+4. **Message types matter.** The tool loop expects specific message types:
+   - `UserMessage`: User input
+   - `SystemMessage`: System prompts
+   - `AssistantMessage`: LLM text response
+   - `AssistantMessageWithToolCalls`: LLM response with tool requests
+   - `ToolResultMessage`: Result returned to LLM after tool execution
+
+
+==== Advanced: Custom Embedding Service
+
+Just as you can integrate a custom LLM, you can implement a custom embedding service that doesn't depend on Spring AI.
+This is useful when:
+
+- You want to use an embedding provider not supported by Spring AI
+- You need custom pre/post-processing of embeddings
+- You're integrating with a proprietary or internal embedding API
+
+===== The EmbeddingService Interface
+
+The `EmbeddingService` interface is framework-agnostic.
+Unlike `SpringAiEmbeddingService`, a custom implementation does not need to wrap a Spring AI `EmbeddingModel`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public interface EmbeddingService {
+    float[] embed(String text);
+    List<float[]> embed(List<String> texts);
+    int getDimensions();
+    String getName();
+    String getProvider();
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+interface EmbeddingService : EmbeddingServiceMetadata, HasInfoString {
+    fun embed(text: String): FloatArray
+    fun embed(texts: List<String>): List<FloatArray>
+    val dimensions: Int
+}
+----
+====
+
+===== Example: Custom Embedding Provider
+
+Here's an example of implementing `EmbeddingService` for an HTTP-based embedding API:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public class MyCustomEmbeddingService implements EmbeddingService {
+
+    private final String name;
+    private final String provider;
+    private final int dimensions;
+    private final HttpClient httpClient;
+    private final String apiKey;
+
+    public MyCustomEmbeddingService(
+            String name,
+            String provider,
+            int dimensions,
+            HttpClient httpClient,
+            String apiKey) {
+        this.name = name;
+        this.provider = provider;
+        this.dimensions = dimensions;
+        this.httpClient = httpClient;
+        this.apiKey = apiKey;
+    }
+
+    @Override
+    public String getName() { return name; }
+
+    @Override
+    public String getProvider() { return provider; }
+
+    @Override
+    public int getDimensions() { return dimensions; }
+
+    @Override
+    public float[] embed(String text) {
+        return embed(List.of(text)).get(0);
+    }
+
+    @Override
+    public List<float[]> embed(List<String> texts) {
+        MyEmbeddingResponse response = httpClient
+            .post("https://api.my-embeddings.com/embed")
+            .header("Authorization", "Bearer " + apiKey)
+            .body(Map.of("texts", texts, "model", name))
+            .execute(MyEmbeddingResponse.class);
+        return response.getEmbeddings();
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+class MyCustomEmbeddingService(
+    override val name: String,
+    override val provider: String,
+    override val dimensions: Int,
+    private val httpClient: HttpClient,
+    private val apiKey: String,
+) : EmbeddingService {
+
+    override fun embed(text: String): FloatArray =
+        embed(listOf(text)).first()
+
+    override fun embed(texts: List<String>): List<FloatArray> {
+        val response = httpClient.post("https://api.my-embeddings.com/embed") {
+            header("Authorization", "Bearer $apiKey")
+            body = mapOf("texts" to texts, "model" to name)
+        }
+        return response.body<MyEmbeddingResponse>().embeddings
+    }
+}
+----
+====
+
+===== Registering as a Spring Bean
+
+Register your custom embedding service as a Spring bean and it will be automatically discovered:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Configuration
+public class MyEmbeddingConfiguration {
+
+    @Bean
+    public EmbeddingService myCustomEmbeddings(
+            HttpClient httpClient,
+            @Value("${my-embeddings.api-key}") String apiKey) {
+        return new MyCustomEmbeddingService(
+            "my-custom-embeddings",
+            "MyProvider",
+            384,
+            httpClient,
+            apiKey
+        );
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Configuration
+class MyEmbeddingConfiguration {
+
+    @Bean
+    fun myCustomEmbeddings(
+        httpClient: HttpClient,
+        @Value("\${my-embeddings.api-key}") apiKey: String,
+    ): EmbeddingService = MyCustomEmbeddingService(
+        name = "my-custom-embeddings",
+        provider = "MyProvider",
+        dimensions = 384,
+        httpClient = httpClient,
+        apiKey = apiKey,
+    )
+}
+----
+====
+
+===== Discovery and Selection
+
+Custom embedding services follow the same discovery and selection pattern as LLMs (see <<How Model Discovery and Selection Works>>).
+
+**By name**: Use `ai.withEmbeddingService()` with the `name` from your implementation:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+ai.withEmbeddingService("my-custom-embeddings")
+    .embed("Hello world");
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+ai.withEmbeddingService("my-custom-embeddings")
+    .embed("Hello world")
+----
+====
+
+**By role**: Map a role name to your embedding service in configuration:
+
+[source,yaml]
+----
+embabel:
+  models:
+    default-embedding-model: my-custom-embeddings  # <1>
+    embedding-services:
+      cheapest: my-custom-embeddings               # <2>
+----
+<1> Sets the default embedding service
+<2> Maps the `cheapest` role to your custom embedding service
+

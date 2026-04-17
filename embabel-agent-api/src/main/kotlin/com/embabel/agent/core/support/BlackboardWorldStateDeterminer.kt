@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,28 @@
 package com.embabel.agent.core.support
 
 import com.embabel.agent.api.common.OperationContext
+import com.embabel.agent.core.Blackboard
 import com.embabel.agent.core.Condition
 import com.embabel.agent.core.ProcessContext
+import com.embabel.agent.core.expression.LogicalExpressionParser
 import com.embabel.agent.core.satisfiesType
-import com.embabel.agent.core.support.Rerun.HAS_RUN_CONDITION_PREFIX
-import com.embabel.plan.goap.ConditionDetermination
-import com.embabel.plan.goap.GoapWorldState
-import com.embabel.plan.goap.WorldStateDeterminer
+import com.embabel.plan.common.condition.ConditionDetermination
+import com.embabel.plan.common.condition.ConditionWorldState
+import com.embabel.plan.common.condition.WorldStateDeterminer
+import com.fasterxml.jackson.annotation.JsonIgnore
 import org.slf4j.LoggerFactory
+
+/**
+ * WorldState implementation that wraps a ConditionWorldState and includes
+ * a reference to the Blackboard for accessing domain objects at planning time.
+ * This enables @Cost methods to access domain objects for dynamic cost computation.
+ */
+class BlackboardWorldState(
+    val conditionWorldState: ConditionWorldState,
+    @field:JsonIgnore
+    val blackboard: Blackboard,
+) : ConditionWorldState by conditionWorldState
+
 
 /**
  * Determine world state for the given ProcessContext,
@@ -31,24 +45,31 @@ import org.slf4j.LoggerFactory
  */
 class BlackboardWorldStateDeterminer(
     private val processContext: ProcessContext,
+    private val logicalExpressionParser: LogicalExpressionParser,
 ) : WorldStateDeterminer {
 
     private val logger = LoggerFactory.getLogger(BlackboardWorldStateDeterminer::class.java)
 
     private val knownConditions = processContext.agentProcess.agent.planningSystem.knownConditions()
 
-    override fun determineWorldState(): GoapWorldState {
+    override fun determineWorldState(): BlackboardWorldState {
         val map = mutableMapOf<String, ConditionDetermination>()
         knownConditions.forEach { condition ->
             // TODO shouldn't evaluate expensive conditions, just
             // return unknown
             map[condition] = determineCondition(condition)
         }
-        return GoapWorldState(map)
+        return BlackboardWorldState(ConditionWorldState(map), processContext.blackboard)
     }
 
     override fun determineCondition(condition: String): ConditionDetermination {
+        val logicalExpression = logicalExpressionParser.parse(condition)
+
         val conditionDetermination = when {
+            logicalExpression != null -> {
+                logicalExpression.evaluate(processContext.blackboard)
+            }
+
             // Data binding condition
             condition.contains(":") -> {
                 val (variable, type) = condition.split(":")
@@ -62,7 +83,7 @@ class BlackboardWorldStateDeterminer(
                     return ConditionDetermination(true)
                 }
 
-                val value = processContext.getValue(variable, type)
+                val value = processContext.agentProcess.getValue(variable, type)
 
                 val determination = when {
                     type == "List" ->
@@ -87,11 +108,13 @@ class BlackboardWorldStateDeterminer(
             }
 
             condition.startsWith(Rerun.HAS_RUN_CONDITION_PREFIX) -> {
-                // Special case for hasRun- conditions
-                val actionName = condition.substringAfter(HAS_RUN_CONDITION_PREFIX)
-                val determination = ConditionDetermination(processContext.agentProcess.history.any {
-                    it.actionName == actionName
-                })
+                // Check blackboard for hasRun conditions.
+                // The condition is set on the blackboard after each action execution.
+                // When state transitions clear the blackboard, hasRun is naturally reset,
+                // but the action's input preconditions also won't be satisfied.
+                val determination = ConditionDetermination(
+                    processContext.blackboard.getCondition(condition)
+                ).asTrueOrFalse()
                 logger.debug(
                     "Determined hasRun condition {}={}: known conditions={}, bindings={}",
                     condition,
@@ -140,7 +163,8 @@ class BlackboardWorldStateDeterminer(
             }
         }
         if (conditionDetermination == ConditionDetermination.UNKNOWN) {
-            logger.warn(
+            // These occur often so don't log at info level, but at debug level for troubleshooting
+            logger.debug(
                 "Determined condition {} to be unknown: knownConditions={}, bindings={}",
                 condition,
                 knownConditions.sorted(),

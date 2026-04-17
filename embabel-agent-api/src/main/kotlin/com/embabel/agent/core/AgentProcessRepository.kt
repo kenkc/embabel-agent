@@ -1,0 +1,43 @@
+/*
+ * Copyright 2024-2026 Embabel Pty Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.embabel.agent.core
+
+/**
+ * Repository for agent processes.
+ */
+interface AgentProcessRepository {
+
+    fun findById(id: String): AgentProcess?
+
+    /**
+     * Find all child processes for the given parent process ID.
+     * @param parentId the ID of the parent process
+     * @return list of child processes, empty if none found
+     */
+    fun findByParentId(parentId: String): List<AgentProcess>
+
+    /**
+     * Save a new agent process.
+     */
+    fun save(agentProcess: AgentProcess): AgentProcess
+
+    /**
+     * Update an existing agent process.
+     */
+    fun update(agentProcess: AgentProcess)
+
+    fun delete(agentProcess: AgentProcess)
+}

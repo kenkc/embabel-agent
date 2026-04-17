@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,26 +15,31 @@
  */
 package com.embabel.agent.config.models.anthropic
 
-import com.embabel.agent.common.RetryProperties
-import com.embabel.agent.config.models.AnthropicModels
-import com.embabel.common.ai.model.Llm
+import com.embabel.agent.api.models.AnthropicModels
+import com.embabel.agent.spi.LlmService
+import com.embabel.agent.spi.common.RetryProperties
+import com.embabel.agent.spi.support.springai.SpringAiLlmService
+import com.embabel.common.ai.autoconfig.LlmAutoConfigMetadataLoader
+import com.embabel.common.ai.autoconfig.ProviderInitialization
+import com.embabel.common.ai.autoconfig.RegisteredModel
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.model.OptionsConverter
 import com.embabel.common.ai.model.PerTokenPricingModel
 import com.embabel.common.util.ExcludeFromJacocoGeneratedReport
 import io.micrometer.observation.ObservationRegistry
-import org.slf4j.LoggerFactory
 import org.springframework.ai.anthropic.AnthropicChatModel
 import org.springframework.ai.anthropic.AnthropicChatOptions
 import org.springframework.ai.anthropic.api.AnthropicApi
 import org.springframework.ai.model.tool.ToolCallingManager
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.boot.context.properties.ConfigurationProperties
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.web.client.RestClient
-import org.springframework.web.reactive.function.client.WebClient
-import java.time.LocalDate
 
 
 /**
@@ -45,6 +50,16 @@ import java.time.LocalDate
  */
 @ConfigurationProperties(prefix = "embabel.agent.platform.models.anthropic")
 class AnthropicProperties : RetryProperties {
+    /**
+     * Base URL for Anthropic API requests.
+     */
+    var baseUrl: String? = null
+
+    /**
+     * API key for authenticating with Anthropic services.
+     */
+    var apiKey: String? = null
+
     /**
      *  Maximum number of attempts.
      */
@@ -69,111 +84,133 @@ class AnthropicProperties : RetryProperties {
 
 /**
  * Configuration class for Anthropic models.
- * This class provides beans for various Claude models (Opus, Sonnet, Haiku)
- * and handles the creation of Anthropic API clients with proper authentication.
+ * Extends [AnthropicModelFactory] so that the API client construction is shared
+ * with the BYOK path. This class adds the Spring autoconfigure wiring on top:
+ * loading model definitions from YAML, registering them as beans, and applying
+ * the retry policy from [AnthropicProperties].
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(AnthropicProperties::class)
 @ExcludeFromJacocoGeneratedReport(reason = "Anthropic configuration can't be unit tested")
 class AnthropicModelsConfig(
-    @param:Value("\${ANTHROPIC_BASE_URL:}")
-    private val baseUrl: String,
-    @param:Value("\${ANTHROPIC_API_KEY}")
-    private val apiKey: String,
+    @param:Value("\${ANTHROPIC_BASE_URL:#{null}}")
+    private val envBaseUrl: String?,
+    @param:Value("\${ANTHROPIC_API_KEY:#{null}}")
+    private val envApiKey: String?,
     private val properties: AnthropicProperties,
-    private val observationRegistry: ObservationRegistry,
+    observationRegistry: ObjectProvider<ObservationRegistry>,
+    @Qualifier("aiModelRestClientBuilder")
+    restClientBuilder: ObjectProvider<RestClient.Builder>,
+    private val configurableBeanFactory: ConfigurableBeanFactory,
+    private val modelLoader: LlmAutoConfigMetadataLoader<AnthropicModelDefinitions> = AnthropicModelLoader(),
+) : AnthropicModelFactory(
+    apiKey = envApiKey ?: properties.apiKey
+        ?: error("Anthropic API key required: set ANTHROPIC_API_KEY env var or embabel.agent.platform.models.anthropic.api-key"),
+    baseUrl = envBaseUrl ?: properties.baseUrl,
+    observationRegistry = observationRegistry.getIfUnique { ObservationRegistry.NOOP },
+    restClientBuilder = restClientBuilder,
 ) {
-    private val logger = LoggerFactory.getLogger(AnthropicModelsConfig::class.java)
 
     init {
         logger.info("Anthropic models are available: {}", properties)
     }
 
     @Bean
-    fun claudeOpus4(): Llm {
-        return anthropicLlmOf(
-            AnthropicModels.Companion.CLAUDE_40_OPUS,
-            knowledgeCutoffDate = LocalDate.of(2025, 3, 31),
-        )
-            .copy(
-                pricingModel = PerTokenPricingModel(
-                    usdPer1mInputTokens = 15.0,
-                    usdPer1mOutputTokens = 75.0,
-                )
-            )
+    fun anthropicModelsInitializer(): ProviderInitialization {
+        val registeredLlms = buildList {
+            modelLoader
+                .loadAutoConfigMetadata().models.forEach { modelDef ->
+                    try {
+                        val llm = createAnthropicLlm(modelDef)
+
+                        // Register as singleton bean with the configured bean name
+                        configurableBeanFactory.registerSingleton(modelDef.name, llm)
+                        add(RegisteredModel(beanName = modelDef.name, modelId = modelDef.modelId))
+
+                        logger.info(
+                            "Registered Anthropic model bean: {} -> {}",
+                            modelDef.name, modelDef.modelId
+                        )
+
+                    } catch (e: Exception) {
+                        logger.error(
+                            "Failed to create model: {} ({})",
+                            modelDef.name, modelDef.modelId, e
+                        )
+                        throw e
+                    }
+                }
+        }
+
+        return ProviderInitialization(
+            provider = AnthropicModels.PROVIDER,
+            registeredLlms = registeredLlms,
+        ).also { logger.info(it.summary()) }
     }
 
-    @Bean
-    fun claudeSonnet(): Llm {
-        return anthropicLlmOf(
-            AnthropicModels.Companion.CLAUDE_37_SONNET,
-            knowledgeCutoffDate = LocalDate.of(2024, 10, 31),
-        )
-            .copy(
-                pricingModel = PerTokenPricingModel(
-                    usdPer1mInputTokens = 3.0,
-                    usdPer1mOutputTokens = 15.0,
-                )
-            )
-    }
-
-    @Bean
-    fun claudeHaiku(): Llm = anthropicLlmOf(
-        AnthropicModels.Companion.CLAUDE_35_HAIKU,
-        knowledgeCutoffDate = LocalDate.of(2024, 10, 22),
-    )
-        .copy(
-            pricingModel = PerTokenPricingModel(
-                usdPer1mInputTokens = .80,
-                usdPer1mOutputTokens = 4.0,
-            )
-        )
-
-    private fun anthropicLlmOf(
-        name: String,
-        knowledgeCutoffDate: LocalDate?,
-    ): Llm {
+    /**
+     * Creates an individual Anthropic model from configuration, applying full model
+     * definition settings (thinking mode, token budgets, pricing, etc.) that are not
+     * needed in the BYOK path.
+     */
+    private fun createAnthropicLlm(modelDef: AnthropicModelDefinition): LlmService<*> {
         val chatModel = AnthropicChatModel
             .builder()
-            .defaultOptions(
-                AnthropicChatOptions.builder()
-                    .model(name)
-                    .build()
-            )
+            .defaultOptions(createDefaultOptions(modelDef))
             .anthropicApi(createAnthropicApi())
             .toolCallingManager(
                 ToolCallingManager.builder()
                     .observationRegistry(observationRegistry)
-                    .build())
-            .retryTemplate(properties.retryTemplate("anthropic-$name"))
+                    .build()
+            )
+            .retryTemplate(properties.retryTemplate("anthropic-${modelDef.modelId}"))
             .observationRegistry(observationRegistry)
             .build()
 
-        return Llm(
-            name = name,
-            model = chatModel,
-            provider = AnthropicModels.Companion.PROVIDER,
+        return SpringAiLlmService(
+            name = modelDef.modelId,
+            chatModel = chatModel,
+            provider = AnthropicModels.PROVIDER,
             optionsConverter = AnthropicOptionsConverter,
-            knowledgeCutoffDate = knowledgeCutoffDate,
+            knowledgeCutoffDate = modelDef.knowledgeCutoffDate,
+            pricingModel = modelDef.pricingModel?.let {
+                PerTokenPricingModel(
+                    usdPer1mInputTokens = it.usdPer1mInputTokens,
+                    usdPer1mOutputTokens = it.usdPer1mOutputTokens,
+                )
+            }
         )
     }
 
-    private fun createAnthropicApi(): AnthropicApi {
-        val builder = AnthropicApi.builder().apiKey(apiKey)
-        if (baseUrl.isNotBlank()) {
-            logger.info("Using custom Anthropic base URL: {}", baseUrl)
-            builder.baseUrl(baseUrl)
-        }
-        //add observation registry to rest and web client builders
-        builder
-            .restClientBuilder(RestClient.builder()
-                .observationRegistry(observationRegistry))
-        builder
-            .webClientBuilder(WebClient.builder()
-                .observationRegistry(observationRegistry))
+    /**
+     * Creates default options for a model based on YAML configuration.
+     */
+    private fun createDefaultOptions(modelDef: AnthropicModelDefinition): AnthropicChatOptions {
+        return AnthropicChatOptions.builder()
+            .model(modelDef.modelId)
+            .maxTokens(modelDef.maxTokens)
+            .temperature(modelDef.temperature)
+            .apply {
+                modelDef.topP?.let { topP(it) }
+                modelDef.topK?.let { topK(it) }
 
-        return builder.build()
+                // Configure thinking mode if specified
+                modelDef.thinking?.let { thinkingConfig ->
+                    thinking(
+                        AnthropicApi.ChatCompletionRequest.ThinkingConfig(
+                            AnthropicApi.ThinkingType.ENABLED,
+                            thinkingConfig.tokenBudget
+                        )
+                    )
+                } ?: thinking(
+                    AnthropicApi.ChatCompletionRequest.ThinkingConfig(
+                        AnthropicApi.ThinkingType.DISABLED,
+                        null
+                    )
+                )
+            }
+            .build()
     }
-
 }
 
 object AnthropicOptionsConverter : OptionsConverter<AnthropicChatOptions> {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.embabel.agent.domain.library.code
 
+import com.embabel.agent.api.common.Asyncer
 import com.embabel.agent.tools.file.PatternSearch
 
 /**
@@ -34,12 +35,12 @@ interface SymbolSearch : PatternSearch {
     fun findClassInProject(
         className: String,
         globPattern: String = "**/*.{kt,java}",
-        useParallelSearch: Boolean = true,
+        asyncer: Asyncer? = null,
     ): List<PatternSearch.PatternMatch> {
         return findPatternInProject(
             pattern = classPattern(className),
             globPattern = globPattern,
-            useParallelSearch = useParallelSearch
+            asyncer = asyncer,
         )
     }
 }

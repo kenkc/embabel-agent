@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,7 +41,10 @@ enum class AgentProcessStatusCode {
     /** The process has been killed by the user or platform, from outside */
     KILLED,
 
-    /** The process cannot formulate a plan to progress. This does not necessarily mean failure. Something might change */
+    /**
+     * The process cannot formulate a plan to progress.
+     * This does not necessarily mean failure. Something might change
+     **/
     STUCK,
 
     /** The process is waiting for user input or another external event */
@@ -54,6 +57,9 @@ enum class AgentProcessStatusCode {
     PAUSED,
 }
 
+/**
+ * Status code for execution of an action
+ */
 enum class ActionStatusCode {
     /** The action succeeded */
     SUCCEEDED,
@@ -65,6 +71,12 @@ enum class ActionStatusCode {
     WAITING,
 
     PAUSED,
+
+    /** The action was terminated early via [com.embabel.agent.api.tool.TerminateActionException]. Agent continues. */
+    TERMINATED,
+
+    /** The action requested agent termination via [com.embabel.agent.api.tool.TerminateAgentException]. Agent stops. */
+    AGENT_TERMINATED,
 }
 
 /**

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@ package com.embabel.agent.api.common
 
 import com.embabel.agent.core.LlmVerbosity
 import com.embabel.agent.core.ProcessOptions
+import com.embabel.agent.spi.LlmService
 import com.embabel.common.ai.model.*
-import org.springframework.ai.embedding.EmbeddingModel
 
 typealias Embedding = FloatArray
 
@@ -30,18 +30,18 @@ typealias Embedding = FloatArray
 interface Ai {
 
     /**
-     * Return an embedding model with the given name
+     * Return an embedding service with the given name
      */
-    fun withEmbeddingModel(model: String): EmbeddingModel =
-        withEmbeddingModel(ModelSelectionCriteria.byName(model))
+    fun withEmbeddingService(model: String): EmbeddingService =
+        withEmbeddingService(ModelSelectionCriteria.byName(model))
 
     /**
-     * Return an embedding model matching the given criteria.
+     * Return an embedding service matching the given criteria.
      */
-    fun withEmbeddingModel(criteria: ModelSelectionCriteria): EmbeddingModel
+    fun withEmbeddingService(criteria: ModelSelectionCriteria): EmbeddingService
 
-    fun withDefaultEmbeddingModel(): EmbeddingModel =
-        withEmbeddingModel(DefaultModelSelectionCriteria)
+    fun withDefaultEmbeddingService(): EmbeddingService =
+        withEmbeddingService(DefaultModelSelectionCriteria)
 
     /**
      * Get a configurable PromptRunner for this context using
@@ -88,6 +88,14 @@ interface Ai {
     fun withFirstAvailableLlmOf(vararg llms: String): PromptRunner {
         return withLlm(LlmOptions(criteria = FallbackByNameModelSelectionCriteria(llms.toList())))
     }
+
+    /**
+     * Get a configurable PromptRunner using a pre-resolved LLM service.
+     * Bypasses ModelProvider resolution — useful for BYOK (bring your own per-user key) scenarios,
+     * testing, or dynamic provider selection.
+     */
+    fun withLlmService(llmService: LlmService<*>): PromptRunner =
+        withLlm(LlmOptions(modelSelectionCriteria = PreResolvedModelSelectionCriteria(llmService)))
 }
 
 /**

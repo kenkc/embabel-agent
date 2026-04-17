@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,41 +15,56 @@
  */
 package com.embabel.agent.api.annotation.support
 
-import com.embabel.agent.api.annotation.*
-import com.embabel.agent.api.common.*
-import com.embabel.agent.api.dsl.*
+import com.embabel.agent.api.annotation.AchievesGoal
+import com.embabel.agent.api.annotation.Action
+import com.embabel.agent.api.annotation.Agent
+import com.embabel.agent.api.annotation.Condition
+import com.embabel.agent.api.annotation.EmbabelComponent
+import com.embabel.agent.api.annotation.LlmTool
+import com.embabel.agent.api.annotation.RequireNameMatch
+import com.embabel.agent.api.common.ActionContext
+import com.embabel.agent.api.common.Ai
+import com.embabel.agent.api.common.OperationContext
+import com.embabel.agent.api.common.SomeOf
+import com.embabel.agent.api.common.TransformationActionContext
+import com.embabel.agent.api.common.createObject
+import com.embabel.agent.api.dsl.Frog
+import com.embabel.agent.api.dsl.SnakeMeal
+import com.embabel.agent.api.dsl.chain
+import com.embabel.agent.api.dsl.evenMoreEvilWizard
+import com.embabel.agent.api.dsl.runAgent
+import com.embabel.agent.api.tool.ToolObject
 import com.embabel.agent.core.Goal
 import com.embabel.agent.core.ProcessContext
-import com.embabel.agent.core.ToolGroupRequirement
 import com.embabel.agent.core.hitl.ConfirmationRequest
+import com.embabel.agent.core.hitl.waitFor
+import com.embabel.agent.core.last
 import com.embabel.agent.domain.io.UserInput
 import com.embabel.agent.support.Dog
 import com.embabel.common.ai.model.LlmOptions
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.springframework.ai.tool.annotation.Tool
 
 data class PersonWithReverseTool(val name: String) {
 
-    @Tool
+    @LlmTool(description = "reverse name")
     fun reverse() = name.reversed()
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class NoMethods
 
-@AgentCapabilities
+@EmbabelComponent
 class OneGoalOnly {
 
     val thing1 = Goal.createInstance(
         name = "thing1",
         description = "Thanks to Dr Seuss",
         type = PersonWithReverseTool::class.java,
-    ).withValue(30.0)
+    ).withFixedValue(30.0)
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneGoalOnlyWithRichMetadata {
 
     val thing1 = Goal.createInstance(
@@ -58,10 +73,10 @@ class OneGoalOnlyWithRichMetadata {
         type = PersonWithReverseTool::class.java,
         tags = setOf("foo", "bar"),
         examples = setOf("make me happy"),
-    ).withValue(30.0)
+    ).withFixedValue(30.0)
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class TwoGoalsOnly {
 
     val thing1 = Goal.createInstance(
@@ -74,7 +89,7 @@ class TwoGoalsOnly {
     )
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ActionGoal {
 
     @Action
@@ -89,7 +104,7 @@ interface InterfaceWithNoDeser {
     val content: String
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class InvalidActionNoDeserializationInInterfaceGoal {
 
     @Action
@@ -109,7 +124,7 @@ data class MyInterfaceWithDeser(
     override val content: String,
 ) : InterfaceWithDeser
 
-@AgentCapabilities
+@EmbabelComponent
 class ValidActionWithDeserializationInInterfaceGoal {
 
     @Action
@@ -120,7 +135,7 @@ class ValidActionWithDeserializationInInterfaceGoal {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class TwoActionGoals {
 
     @Action
@@ -137,7 +152,7 @@ class TwoActionGoals {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class TwoActuallyNonConflictingActionGoalsWithSameOutput {
 
     @Action
@@ -154,7 +169,7 @@ class TwoActuallyNonConflictingActionGoalsWithSameOutput {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class TwoConflictingActionGoals {
 
     @Action
@@ -171,7 +186,7 @@ class TwoConflictingActionGoals {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class NoConditions {
 
     // A goal makes it legal
@@ -179,11 +194,11 @@ class NoConditions {
         name = "thing1",
         description = "Thanks to Dr Seuss",
         type = PersonWithReverseTool::class.java,
-    ).withValue(30.0)
+    ).withFixedValue(30.0)
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneOperationContextConditionOnly {
 
     @Condition(cost = .5)
@@ -193,7 +208,7 @@ class OneOperationContextConditionOnly {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneOperationContextAiOnly {
 
     @Condition(cost = .5)
@@ -203,7 +218,7 @@ class OneOperationContextAiOnly {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ConditionFromBlackboard {
 
     @Condition
@@ -213,7 +228,7 @@ class ConditionFromBlackboard {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class CustomNameConditionFromBlackboard {
 
     @Condition(name = "condition1")
@@ -223,7 +238,7 @@ class CustomNameConditionFromBlackboard {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ConditionsFromBlackboard {
 
     @Condition
@@ -246,7 +261,7 @@ class OneTransformerActionOnly {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionWithNullableParameter {
 
     @Action(cost = 500.0)
@@ -276,7 +291,7 @@ class InternalDomainClasses {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionTakingPayloadOnly {
 
     @Action(cost = 500.0)
@@ -289,7 +304,7 @@ class OneTransformerActionTakingPayloadOnly {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionTakingOperationPayload {
 
     @Action(cost = 500.0)
@@ -302,67 +317,12 @@ class OneTransformerActionTakingOperationPayload {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionReferencingConditionByName {
 
     @Action(pre = ["condition1"])
     fun toPerson(userInput: UserInput): PersonWithReverseTool {
         return PersonWithReverseTool(userInput.content)
-    }
-
-}
-
-@AgentCapabilities
-class OneTransformerActionWithCustomToolGroupOnly {
-
-    @Action(cost = 500.0, toolGroups = ["magic"])
-    fun toPerson(userInput: UserInput): PersonWithReverseTool {
-        return PersonWithReverseTool(userInput.content)
-    }
-
-}
-
-@Agent(description = "thing")
-class OneTransformerActionTakingInterfaceWithCustomToolGroupOnly {
-
-    @AchievesGoal(description = "Creating a frog")
-    @Action(cost = 500.0, toolGroups = ["magic"])
-    fun toPerson(person: PersonWithReverseTool): Frog {
-        return Frog(person.name)
-    }
-
-}
-
-@Agent(description = "thing")
-class OneTransformerActionTakingInterfaceWithExpectationCustomToolGroupOnly {
-
-    @AchievesGoal(description = "Creating a frog")
-    @Action(cost = 500.0, toolGroups = ["magic"])
-    fun toPerson(
-        person: PersonWithReverseTool,
-        context: OperationContext,
-    ): Frog {
-        val pr = context.promptRunner()
-        assertEquals(setOf(ToolGroupRequirement("magic")), pr.toolGroups.toSet())
-//        assertFalse(pr.toolCallbacks.isEmpty(), "ToolCallbacks should be expanded")
-        return Frog(person.name)
-    }
-
-}
-
-@Agent(description = "thing")
-class OneTransformerActionTakingInterfaceWithExpectationCustomToolGroupRequirementOnly {
-
-    @AchievesGoal(description = "Creating a frog")
-    @Action(cost = 500.0, toolGroups = ["frogs"], toolGroupRequirements = [ToolGroup("magic")])
-    fun toPerson(
-        person: PersonWithReverseTool,
-        context: OperationContext,
-    ): Frog {
-        val pr = context.promptRunner()
-        assertEquals(setOf(ToolGroupRequirement("magic"), ToolGroupRequirement("frogs")), pr.toolGroups.toSet())
-//        assertFalse(pr.toolCallbacks.isEmpty(), "ToolCallbacks should be expanded")
-        return Frog(person.name)
     }
 
 }
@@ -453,7 +413,7 @@ class AgentWithOneTransformerActionWith2ArgsOnlyAndOperationContextParameter {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionWith2ArgsAndCustomInputBindings {
 
     @Action
@@ -466,7 +426,7 @@ class OneTransformerActionWith2ArgsAndCustomInputBindings {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionWith2ArgsAndCustomOutputBinding {
 
     @Action(outputBinding = "person")
@@ -479,7 +439,7 @@ class OneTransformerActionWith2ArgsAndCustomOutputBinding {
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OnePromptActionOnly(
 ) {
 
@@ -495,7 +455,7 @@ class OnePromptActionOnly(
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class AwaitableOne(
 ) {
 
@@ -511,13 +471,13 @@ class AwaitableOne(
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class Combined {
 
     val planner = Goal.createInstance(
         description = "Create a person",
         type = PersonWithReverseTool::class.java,
-    ).withValue(30.0)
+    ).withFixedValue(30.0)
 
     // Can reuse this or inject
     val magicalLlm = LlmOptions.withModel("magical").withTemperature(1.7)
@@ -540,14 +500,14 @@ class Combined {
         return context.ai().withLlm(magicalLlm).createObject("Generated prompt for ${userInput.content}")
     }
 
-    @Tool
+    @LlmTool
     fun weatherService(location: String) =
         "The weather in $location is ${listOf("sunny", "raining", "foggy").random()}"
 
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OnePromptActionWithToolOnly(
 ) {
 
@@ -561,50 +521,19 @@ class OnePromptActionWithToolOnly(
                 "Generated prompt for ${userInput.content}"
     }
 
-    @Tool
+    @LlmTool
     fun thing(): String {
         return "foobar"
     }
 
 }
 
-@AgentCapabilities
-class FromPersonUsesDomainObjectTools {
+// Note: FromPersonUsesDomainObjectTools, FromPersonUsesDomainObjectToolsViaActionContext,
+// and FromPersonUsesDomainObjectToolsViaExecutingOperationContext were removed because
+// they tested undocumented automatic tool exposure from domain object parameters.
+// Domain object tools must be explicitly added via withToolObject().
 
-    @Action
-    fun fromPerson(
-        person: PersonWithReverseTool,
-        context: OperationContext,
-    ): UserInput {
-        return context.ai().withDefaultLlm().createObject("Create a UserInput")
-    }
-}
-
-@AgentCapabilities
-class FromPersonUsesDomainObjectToolsViaActionContext {
-
-    @Action
-    fun fromPerson(
-        person: PersonWithReverseTool,
-        context: ActionContext,
-    ): UserInput {
-        return context.promptRunner().createObject("Create a UserInput")
-    }
-}
-
-@AgentCapabilities
-class FromPersonUsesDomainObjectToolsViaExecutingOperationContext {
-
-    @Action
-    fun fromPerson(
-        person: PersonWithReverseTool,
-        context: ExecutingOperationContext,
-    ): UserInput {
-        return context.promptRunner().createObject("Create a UserInput")
-    }
-}
-
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesObjectToolsViaUsing {
 
     @Action
@@ -616,7 +545,7 @@ class FromPersonUsesObjectToolsViaUsing {
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesObjectToolsViaUsingWithRenaming {
 
     @Action
@@ -634,7 +563,7 @@ class FromPersonUsesObjectToolsViaUsingWithRenaming {
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesObjectToolsViaUsingWithFilter {
 
     @Action
@@ -642,14 +571,17 @@ class FromPersonUsesObjectToolsViaUsingWithFilter {
         person: PersonWithReverseTool,
         context: OperationContext,
     ): UserInput {
+        // Filter that allows all tools (returns true). Previously this test used { false } which
+        // filtered out all tools, but the test was expecting 1 tool because domain objects were
+        // automatically exposed (which is now removed as undocumented behavior).
         return context.ai().withDefaultLlm()
             .withToolObject(
-                ToolObject(FunnyTool()).withNamingStrategy { "_$it" }.withFilter { false },
+                ToolObject(FunnyTool()).withNamingStrategy { "_$it" }.withFilter { true },
             ).createObject("Create a UserInput")
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesObjectToolsViaContext {
 
     @Action
@@ -661,7 +593,7 @@ class FromPersonUsesObjectToolsViaContext {
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesObjectToolsViaAi {
 
     @Action
@@ -670,12 +602,12 @@ class FromPersonUsesObjectToolsViaAi {
         ai: Ai,
     ): UserInput {
         return ai.withDefaultLlm()
-            .withToolObjects(ToolObject(FunnyTool()))
+            .withToolObjectInstances(ToolObject(FunnyTool()))
             .createObject("Create a UserInput")
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class FromPersonUsesObjectToolsViaContextWithRenaming {
 
     @Action
@@ -692,13 +624,13 @@ class FromPersonUsesObjectToolsViaContextWithRenaming {
 }
 
 class FunnyTool {
-    @Tool
+    @LlmTool
     fun thing(): String {
         return "foobar"
     }
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class OneTransformerActionWith2Tools {
 
     @Action
@@ -709,15 +641,15 @@ class OneTransformerActionWith2Tools {
         return PersonWithReverseTool(userInput.content)
     }
 
-    @Tool
+    @LlmTool
     fun toolWithoutArg(): String = "foo"
 
-    @Tool
+    @LlmTool
     fun toolWithArg(location: String) = "bar"
 
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ToolMethodsOnDomainObject {
 
     @Action
@@ -738,14 +670,14 @@ class ToolMethodsOnDomainObject {
 
 class Wumpus(val name: String) {
 
-    @Tool
+    @LlmTool
     fun toolWithoutArg(): String = "The wumpus's name is $name"
 
-    @Tool
+    @LlmTool
     fun toolWithArg(location: String) = location
 }
 
-@AgentCapabilities
+@EmbabelComponent
 class ToolMethodsOnDomainObjects {
 
     @Action
@@ -819,4 +751,86 @@ class UsesFrogOrDogSomeOf {
         return PersonWithReverseTool(frog.name)
     }
 
+}
+
+@Agent(description = "thing")
+class GetsFromBlackboard {
+
+    @Action(post = ["done"])
+    fun frog(): Frog {
+        return Frog("Kermit")
+    }
+
+    @Condition
+    fun done(context: OperationContext): Boolean {
+        return context.last(Frog::class.java) != null
+    }
+
+    @AchievesGoal(description = "Creating a prince from a frog")
+    @Action(pre = ["done"])
+    fun toPerson(
+        context: OperationContext,
+    ): PersonWithReverseTool {
+        // Would be better to declare a Frog parameter but that's not what we are testing
+        val frog = context.last<Frog>()!!
+        return PersonWithReverseTool(frog.name)
+    }
+
+}
+
+data class Prince(val name: String)
+
+@Agent(description = "thing")
+class MostSpecificPath {
+
+    var frogsCreatedFromScratch = 0
+
+    @Action
+    fun makeFrogFromScratch(): Frog {
+        frogsCreatedFromScratch += 1
+        return Frog("Kermit")
+    }
+
+    @Action
+    fun makeFrogFromPerson(userInput: UserInput): Frog {
+        return Frog(userInput.content)
+    }
+
+    @AchievesGoal(description = "Creating a prince from a frog")
+    @Action
+    fun createPrince(
+        frog: Frog,
+    ) = Prince(frog.name)
+
+}
+
+@Agent(description = "agent with read-only action")
+class AgentWithReadOnlyAction {
+
+    @Action(readOnly = true)
+    fun analyzeData(userInput: UserInput): PersonWithReverseTool {
+        return PersonWithReverseTool(userInput.content)
+    }
+}
+
+@Agent(description = "agent with non-read-only action")
+class AgentWithNonReadOnlyAction {
+
+    @Action
+    fun modifyData(userInput: UserInput): PersonWithReverseTool {
+        return PersonWithReverseTool(userInput.content)
+    }
+}
+
+@Agent(description = "agent with duplicate action names via overloaded methods")
+class AgentWithDuplicateActionNames {
+
+    @Action
+    @AchievesGoal(description = "respond to user")
+    fun respond(userInput: UserInput): PersonWithReverseTool =
+        PersonWithReverseTool(userInput.content)
+
+    @Action
+    fun respond(userInput: UserInput, person: PersonWithReverseTool): PersonWithReverseTool =
+        PersonWithReverseTool(person.name + " " + userInput.content)
 }

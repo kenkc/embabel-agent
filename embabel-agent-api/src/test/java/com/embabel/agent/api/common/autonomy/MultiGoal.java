@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package com.embabel.agent.api.common.autonomy;
 import com.embabel.agent.api.annotation.AchievesGoal;
 import com.embabel.agent.api.annotation.Action;
 import com.embabel.agent.api.annotation.Agent;
-import com.embabel.agent.api.annotation.WaitFor;
+import com.embabel.agent.core.hitl.WaitFor;
 import com.embabel.agent.domain.io.UserInput;
 import com.embabel.agent.domain.library.ResearchReport;
 

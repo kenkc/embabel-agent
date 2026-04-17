@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,8 +22,9 @@ import com.embabel.agent.core.ProcessContext
 import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.core.support.InMemoryBlackboard
 import com.embabel.agent.core.support.SimpleAgentProcess
+import com.embabel.agent.spi.support.DefaultPlannerFactory
 import com.embabel.agent.support.Dog
-import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyPlatformServices
+import com.embabel.agent.test.integration.IntegrationTestUtils.dummyPlatformServices
 import com.embabel.common.core.types.Semver
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Nested
@@ -109,6 +110,7 @@ class AgentBuilderTest {
                     processOptions = ProcessOptions(blackboard = blackboard),
                     platformServices = platformServices,
                     id = "test",
+                    plannerFactory = DefaultPlannerFactory,
                     parentId = null,
                 ),
                 processOptions = ProcessOptions(blackboard = blackboard),
@@ -138,6 +140,7 @@ class AgentBuilderTest {
                     processOptions = ProcessOptions(blackboard = blackboard),
                     platformServices = platformServices,
                     id = "test",
+                    plannerFactory = DefaultPlannerFactory,
                     parentId = null,
                 ),
                 processOptions = ProcessOptions(blackboard = blackboard),

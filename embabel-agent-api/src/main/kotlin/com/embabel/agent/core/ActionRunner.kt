@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,8 @@
  */
 package com.embabel.agent.core
 
-import com.embabel.agent.api.annotation.AwaitableResponseException
+import com.embabel.agent.api.tool.ToolControlFlowSignal
+import com.embabel.agent.core.hitl.AwaitableResponseException
 import com.embabel.common.util.time
 import org.slf4j.LoggerFactory
 import java.time.Duration
@@ -62,7 +63,15 @@ interface ActionRunner {
 
                     processContext.blackboard.addObject(are.awaitable)
                     ActionStatusCode.WAITING
+                } catch (rpe: ReplanRequestedException) {
+                    // ReplanRequestedException is a control flow signal, not an error.
+                    // Propagate it up to the agent process for replanning.
+                    throw rpe
                 } catch (t: Throwable) {
+                    if (t is ToolControlFlowSignal) {
+                        // Other control flow signals (e.g., UserInputRequiredException) must propagate
+                        throw t
+                    }
                     if (logger.isDebugEnabled) {
                         logger.debug(
                             "Unexpected error invoking action",

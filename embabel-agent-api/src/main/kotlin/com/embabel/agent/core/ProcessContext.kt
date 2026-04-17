@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
  */
 package com.embabel.agent.core
 
+import com.embabel.agent.api.channel.OutputChannel
 import com.embabel.agent.api.common.PlatformServices
-import com.embabel.agent.channel.OutputChannel
-import com.embabel.agent.event.AgenticEventListener
-import com.embabel.agent.event.MulticastAgenticEventListener
-import com.embabel.agent.spi.LlmOperations
+import com.embabel.agent.api.event.AgenticEventListener
+import com.embabel.agent.api.event.MulticastAgenticEventListener
+import com.embabel.agent.core.internal.LlmOperations
 
 /**
  * Process state and services. Created by the platform,
@@ -36,18 +36,4 @@ data class ProcessContext(
 
     val blackboard: Blackboard
         get() = agentProcess
-
-    /**
-     * Get a variable value. Handles "it" default type specially,
-     * because it could be an "it" of different variables, defined
-     * as the most recently added entry.
-     */
-    fun getValue(
-        variable: String,
-        type: String,
-    ): Any? =
-        blackboard.getValue(
-            variable = variable, type = type,
-            dataDictionary = agentProcess.agent,
-        )
 }

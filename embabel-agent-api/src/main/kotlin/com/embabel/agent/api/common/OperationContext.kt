@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,27 @@
  */
 package com.embabel.agent.api.common
 
-import com.embabel.agent.api.common.autonomy.AgentInvocation
-import com.embabel.agent.api.common.support.OperationContextPromptRunner
-import com.embabel.agent.api.dsl.AgentScopeBuilder
-import com.embabel.agent.core.*
-import com.embabel.agent.event.AgenticEventListener
-import com.embabel.agent.identity.User
-import com.embabel.agent.prompt.element.ContextualPromptElement
+import com.embabel.agent.api.common.support.DelegatingStreamingPromptRunner
+import com.embabel.agent.api.common.support.OperationContextDelegate
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
+import com.embabel.agent.api.event.AgenticEventListener
+import com.embabel.agent.api.identity.User
+import com.embabel.agent.api.invocation.AgentInvocation
+import com.embabel.agent.api.tool.ToolObject
+import com.embabel.agent.core.Action
+import com.embabel.agent.core.Agent
+import com.embabel.agent.core.AgentProcess
+import com.embabel.agent.core.Blackboard
+import com.embabel.agent.core.Operation
+import com.embabel.agent.core.ProcessContext
+import com.embabel.agent.core.ToolGroupConsumer
+import com.embabel.agent.core.ToolGroupRequirement
+import com.embabel.agent.spi.LlmService
+import com.embabel.common.ai.model.EmbeddingService
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.model.ModelSelectionCriteria
 import com.embabel.common.ai.prompt.CurrentDate
 import com.embabel.common.ai.prompt.PromptContributor
-import org.springframework.ai.embedding.EmbeddingModel
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -87,14 +96,16 @@ interface OperationContext : Blackboard, ToolGroupConsumer {
         generateExamples: Boolean = false,
     ): PromptRunner {
         val promptContributorsToUse = (promptContributors + CurrentDate()).distinctBy { it.promptContribution().role }
-        return OperationContextPromptRunner(
-            context = this,
-            llm = llm,
-            toolGroups = toolGroups,
-            toolObjects = toolObjects,
-            promptContributors = promptContributorsToUse,
-            contextualPromptContributors = contextualPromptContributors,
-            generateExamples = generateExamples,
+        return DelegatingStreamingPromptRunner(
+            delegate = OperationContextDelegate(
+                context = this,
+                llm = llm,
+                toolGroups = toolGroups,
+                toolObjects = toolObjects,
+                promptContributors = promptContributorsToUse,
+                contextualPromptContributors = contextualPromptContributors,
+                generateExamples = generateExamples,
+            ),
         )
     }
 
@@ -152,7 +163,7 @@ private class OperationContextImpl(
  * Run the given agent as a sub-process of this action context.
  */
 inline fun <reified O : Any> ActionContext.asSubProcess(
-    agentScopeBuilder: AgentScopeBuilder<O>,
+    agentScopeBuilder: TypedAgentScopeBuilder<O>,
 ): O = asSubProcess(
     outputClass = O::class.java,
     agentScopeBuilder = agentScopeBuilder,
@@ -174,13 +185,6 @@ inline fun <reified O : Any> ActionContext.asSubProcess(
  */
 interface InputsActionContext : ActionContext {
     val inputs: List<Any>
-
-    override fun domainObjectInstances(): List<Any> = inputs.flatMap { input ->
-        when (input) {
-            is List<*> -> input.filterNotNull()
-            else -> listOf(input)
-        }.distinct()
-    }
 }
 
 /**
@@ -220,22 +224,23 @@ class SupplierActionContext<O>(
     override val operation = action
 
     val inputs: List<Any> get() = emptyList()
-
-    override fun domainObjectInstances(): List<Any> = listOf(outputClass)
-
 }
 
 internal class OperationContextAi(
     private val context: OperationContext,
 ) : Ai {
 
-    override fun withEmbeddingModel(criteria: ModelSelectionCriteria): EmbeddingModel {
+    override fun withEmbeddingService(criteria: ModelSelectionCriteria): EmbeddingService {
         return context.processContext.platformServices.modelProvider().getEmbeddingService(
             criteria
-        ).model
+        )
     }
 
     override fun withLlm(llm: LlmOptions): PromptRunner {
         return context.promptRunner().withLlm(llm)
+    }
+
+    override fun withLlmService(llmService: LlmService<*>): PromptRunner {
+        return context.promptRunner().withLlmService(llmService)
     }
 }

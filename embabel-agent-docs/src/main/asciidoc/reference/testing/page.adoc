@@ -19,14 +19,18 @@ The framework provides `FakePromptRunner` and `FakeOperationContext` to mock LLM
 Alternatively you can use mock objects.
 https://site.mockito.org/[Mockito] is the default choice for Java; https://mockk.io/[mockk] for Kotlin.
 
-===== Java Example: Testing Prompts and Hyperparameters
+===== Testing Prompts and Hyperparameters
 
-Here's a unit test from the http://github.com/embabel/java-agent-template[Java Agent Template] repository, using Embabel fake objects:
+Here are unit tests from the http://github.com/embabel/java-agent-template[Java Agent Template] and http://github.com/embabel/kotlin-agent-template[Kotlin Agent Template] repositories, using Embabel fake objects:
 
+[tabs]
+====
+Java::
++
 [source,java]
 ----
 class WriteAndReviewAgentTest {
-    
+
     @Test
     void testWriteAndReviewAgent() {
         var context = FakeOperationContext.create();
@@ -61,10 +65,8 @@ class WriteAndReviewAgentTest {
 }
 ----
 
-===== Kotlin Example: Testing Prompts and Hyperparameters
-
-Here's the unit test from the http://github.com/embabel/kotlin-agent-template[Kotlin Agent Template] repository:
-
+Kotlin::
++
 [source,kotlin]
 ----
 /**
@@ -111,7 +113,7 @@ internal class WriteAndReviewAgentTest {
         val userInput = UserInput("Tell me a story about a brave knight", Instant.now())
         val story = Story("Once upon a time, Sir Galahad...")
         val context = FakeOperationContext.create()
-        
+
         context.expectResponse("A thrilling tale of bravery and adventure!")
         agent.reviewStory(userInput, story, context)
 
@@ -119,12 +121,363 @@ internal class WriteAndReviewAgentTest {
         val prompt = promptRunner.llmInvocations.first().prompt
         Assertions.assertTrue(prompt.contains("knight"), "Expected review prompt to contain 'knight'")
         Assertions.assertTrue(prompt.contains("review"), "Expected review prompt to contain 'review'")
-        
+
         // Verify single LLM invocation during review
         Assertions.assertEquals(1, promptRunner.llmInvocations.size)
     }
 }
 ----
+====
+
+===== Testing the Fluent API: withId() and creating()
+
+The `FakePromptRunner` fully supports the fluent API patterns used in production code, enabling comprehensive unit testing of agents that use `withId()` for interaction tracing and `creating()` for structured object creation with examples.
+
+**Testing withId() for Interaction Tracing:**
+
+The `withId()` method sets an interaction ID for better log tracing. In tests, you can verify the interaction ID was correctly set:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Test
+void shouldSetInteractionIdCorrectly() {
+    var context = FakeOperationContext.create();
+    var expectedIntent = new UserIntent("command", "Change channel names");
+    context.expectResponse(expectedIntent);
+
+    var result = context.ai()
+            .withId("classify-intent")  // Set interaction ID for tracing
+            .creating(UserIntent.class)
+            .fromPrompt("Classify the user's intent");
+
+    assertEquals(expectedIntent, result);
+
+    // Verify the interaction ID was set correctly
+    var interaction = context.getLlmInvocations().getFirst().getInteraction();
+    assertEquals("classify-intent", interaction.getId().getValue());
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Test
+fun `should set interaction ID correctly`() {
+    val context = FakeOperationContext.create()
+    val expectedIntent = UserIntent("command", "Change channel names")
+    context.expectResponse(expectedIntent)
+
+    val result = context.ai()
+        .withId("classify-intent")  // Set interaction ID for tracing
+        .creating(UserIntent::class.java)
+        .fromPrompt("Classify the user's intent")
+
+    assertEquals(expectedIntent, result)
+
+    // Verify the interaction ID was set correctly
+    val interaction = context.llmInvocations.first().interaction
+    assertEquals(InteractionId("classify-intent"), interaction.id)
+}
+----
+====
+
+**Testing creating() with withExample():**
+
+The `creating()` API allows you to provide strongly-typed examples to improve LLM output quality. In tests, you can verify examples were included:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Test
+void shouldIncludeExamplesInPrompt() {
+    var context = FakeOperationContext.create();
+    var expectedPlan = new ChannelEditPlan(1, "Lead Vox");
+    context.expectResponse(expectedPlan);
+
+    var result = context.ai()
+            .withLlm(llmSelectionService.selectOptimalLlm())
+            .withId("analyze-edit-request")
+            .creating(ChannelEditPlan.class)
+            .withExample("Rename channel 1", new ChannelEditPlan(1, "Bass"))
+            .withExample("Rename channel 2", new ChannelEditPlan(2, "Drums"))
+            .fromPrompt("Analyze the edit request");
+
+    assertEquals(expectedPlan, result);
+
+    // Verify examples were added as prompt contributors
+    var promptContributors = context.getLlmInvocations().getFirst()
+            .getInteraction().getPromptContributors();
+    assertTrue(promptContributors.size() >= 2, "Examples should be added as prompt contributors");
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Test
+fun `should include examples in prompt`() {
+    val context = FakeOperationContext.create()
+    val expectedPlan = ChannelEditPlan(1, "Lead Vox")
+    context.expectResponse(expectedPlan)
+
+    val result = context.ai()
+        .withLlm(llmSelectionService.selectOptimalLlm())
+        .withId("analyze-edit-request")
+        .creating(ChannelEditPlan::class.java)
+        .withExample("Rename channel 1", ChannelEditPlan(1, "Bass"))
+        .withExample("Rename channel 2", ChannelEditPlan(2, "Drums"))
+        .fromPrompt("Analyze the edit request")
+
+    assertEquals(expectedPlan, result)
+
+    // Verify examples were added as prompt contributors
+    val promptContributors = context.llmInvocations.first().interaction.promptContributors
+    assertTrue(promptContributors.size >= 2, "Examples should be added as prompt contributors")
+}
+----
+====
+
+**Using CreationExample for Reusable Examples:**
+
+For cleaner code and reusability, you can use the `CreationExample` data class to define examples that can be shared across tests or passed as collections:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Test
+void shouldUseCreationExampleDataClass() {
+    var context = FakeOperationContext.create();
+    var expectedPlan = new ChannelEditPlan(1, "Lead Vox");
+    context.expectResponse(expectedPlan);
+
+    // Create a reusable example using CreationExample
+    var example = new CreationExample<>(
+        "Rename channel example",
+        new ChannelEditPlan(2, "Rhythm")
+    );
+
+    var result = context.ai()
+            .withDefaultLlm()
+            .creating(ChannelEditPlan.class)
+            .withExample(example)  // Pass the CreationExample directly
+            .fromPrompt("Analyze the edit request");
+
+    assertEquals(expectedPlan, result);
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Test
+fun `should use CreationExample data class`() {
+    val context = FakeOperationContext.create()
+    val expectedPlan = ChannelEditPlan(1, "Lead Vox")
+    context.expectResponse(expectedPlan)
+
+    // Create a reusable example using CreationExample
+    val example = CreationExample(
+        description = "Rename channel example",
+        value = ChannelEditPlan(2, "Rhythm")
+    )
+
+    val result = context.ai()
+        .withDefaultLlm()
+        .creating(ChannelEditPlan::class.java)
+        .withExample(example)  // Pass the CreationExample directly
+        .fromPrompt("Analyze the edit request")
+
+    assertEquals(expectedPlan, result)
+}
+----
+====
+
+**Adding Multiple Examples with withExamples():**
+
+When you have many examples to add, use `withExamples()` to pass them as a list or vararg. This is especially useful when examples are loaded from a file or database:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Test
+void shouldAddMultipleExamplesFromList() {
+    var context = FakeOperationContext.create();
+    var expectedPlan = new ChannelEditPlan(1, "Lead Vox");
+    context.expectResponse(expectedPlan);
+
+    // Create a list of examples (could be loaded from configuration)
+    var examples = List.of(
+        new CreationExample<>("Rename to Bass", new ChannelEditPlan(1, "Bass")),
+        new CreationExample<>("Rename to Drums", new ChannelEditPlan(2, "Drums")),
+        new CreationExample<>("Rename to Keys", new ChannelEditPlan(3, "Keys")),
+        new CreationExample<>("Rename to Vocals", new ChannelEditPlan(4, "Vocals"))
+    );
+
+    var result = context.ai()
+            .withDefaultLlm()
+            .creating(ChannelEditPlan.class)
+            .withExamples(examples)  // Pass all examples at once
+            .fromPrompt("Analyze the request");
+
+    assertEquals(expectedPlan, result);
+
+    // Verify all examples were added
+    var promptContributors = context.getLlmInvocations().getFirst()
+            .getInteraction().getPromptContributors();
+    assertTrue(promptContributors.size() >= 4);
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Test
+fun `should add multiple examples from list`() {
+    val context = FakeOperationContext.create()
+    val expectedPlan = ChannelEditPlan(1, "Lead Vox")
+    context.expectResponse(expectedPlan)
+
+    // Create a list of examples (could be loaded from configuration)
+    val examples = listOf(
+        CreationExample("Rename to Bass", ChannelEditPlan(1, "Bass")),
+        CreationExample("Rename to Drums", ChannelEditPlan(2, "Drums")),
+        CreationExample("Rename to Keys", ChannelEditPlan(3, "Keys")),
+        CreationExample("Rename to Vocals", ChannelEditPlan(4, "Vocals"))
+    )
+
+    val result = context.ai()
+        .withDefaultLlm()
+        .creating(ChannelEditPlan::class.java)
+        .withExamples(examples)  // Pass all examples at once
+        .fromPrompt("Analyze the request")
+
+    assertEquals(expectedPlan, result)
+
+    // Verify all examples were added
+    val promptContributors = context.llmInvocations.first().interaction.promptContributors
+    assertTrue(promptContributors.size >= 4)
+}
+----
+====
+
+You can also use vararg syntax for inline example lists:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+var result = context.ai()
+        .withDefaultLlm()
+        .creating(ChannelEditPlan.class)
+        .withExamples(
+            new CreationExample<>("Example 1", new ChannelEditPlan(1, "Bass")),
+            new CreationExample<>("Example 2", new ChannelEditPlan(2, "Drums")),
+            new CreationExample<>("Example 3", new ChannelEditPlan(3, "Keys"))
+        )
+        .fromPrompt("Analyze the request");
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val result = context.ai()
+    .withDefaultLlm()
+    .creating(ChannelEditPlan::class.java)
+    .withExamples(
+        CreationExample("Example 1", ChannelEditPlan(1, "Bass")),
+        CreationExample("Example 2", ChannelEditPlan(2, "Drums")),
+        CreationExample("Example 3", ChannelEditPlan(3, "Keys"))
+    )
+    .fromPrompt("Analyze the request")
+----
+====
+
+**Full Fluent API Chain Example:**
+
+Here's a complete example showing how to test an action that uses all the fluent API features:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Test
+void shouldTestCompleteFluentApiChain() {
+    var context = FakeOperationContext.create();
+    var expectedOutput = new ComplexOutput("analysis complete", 42);
+    context.expectResponse(expectedOutput);
+
+    // Production code pattern with full fluent API chain
+    var result = context.ai()
+            .withLlm(LlmOptions.withModel("gpt-4"))
+            .withId("complex-analysis")
+            .withSystemPrompt("You are an expert analyst")
+            .creating(ComplexOutput.class)
+            .withExample("Simple case", new ComplexOutput("basic", 1))
+            .withExample("Complex case", new ComplexOutput("advanced", 100))
+            .fromPrompt("Analyze the input data");
+
+    assertEquals(expectedOutput, result);
+
+    // Comprehensive verification
+    var invocation = context.getLlmInvocations().getFirst();
+    assertEquals("gpt-4", invocation.getInteraction().getLlm().getModel());
+    assertEquals("complex-analysis", invocation.getInteraction().getId().getValue());
+    assertTrue(invocation.getInteraction().getPromptContributors().size() >= 3); // system + 2 examples
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Test
+fun `should test complete fluent API chain`() {
+    val context = FakeOperationContext.create()
+    val expectedOutput = ComplexOutput("analysis complete", 42)
+    context.expectResponse(expectedOutput)
+
+    // Production code pattern with full fluent API chain
+    val result = context.ai()
+        .withLlm(LlmOptions.withModel("gpt-4"))
+        .withId("complex-analysis")
+        .withSystemPrompt("You are an expert analyst")
+        .creating(ComplexOutput::class.java)
+        .withExample("Simple case", ComplexOutput("basic", 1))
+        .withExample("Complex case", ComplexOutput("advanced", 100))
+        .fromPrompt("Analyze the input data")
+
+    assertEquals(expectedOutput, result)
+
+    // Comprehensive verification
+    val invocation = context.llmInvocations.first()
+    assertEquals("gpt-4", invocation.interaction.llm.model)
+    assertEquals("complex-analysis", invocation.interaction.id.value)
+    assertTrue(invocation.interaction.promptContributors.size >= 3) // system + 2 examples
+}
+----
+====
 
 ===== Key Testing Patterns Demonstrated
 
@@ -133,10 +486,12 @@ internal class WriteAndReviewAgentTest {
 - Use `context.getLlmInvocations().getFirst().getPrompt()` to get the actual prompt sent to the LLM
 - Verify that key domain data is properly included in the prompt using `assertTrue(prompt.contains(...))`
 
-**Testing Tool Group Configuration:**
+**Testing Tools:**
 
-- Access tool groups via `getInteraction().getToolGroups()`
-- Verify expected tool groups are present or absent as required
+- Access tools via `getInteraction().getTools()` to verify tools added via `withToolObject()` or `withTool()`
+- Access tool group requirements via `getInteraction().getToolGroups()` to verify named tool group requirements added via `withToolGroup(ToolGroupRequirement)`
+
+NOTE: `getTools()` returns actual `Tool` instances (from `withToolObject()` and `withTool()`), while `getToolGroups()` returns `ToolGroupRequirement` objects (named requirements like "web_search" added via `withToolGroup()`). Most tests should use `getTools()`.
 
 **Testing with Spring Dependencies:**
 
@@ -144,6 +499,10 @@ internal class WriteAndReviewAgentTest {
 
 ===== Testing Multiple LLM Interactions
 
+[tabs]
+====
+Java::
++
 [source,java]
 ----
 @Test
@@ -152,7 +511,7 @@ void shouldHandleMultipleLlmInteractions() {
     var input = new UserInput("Write about space exploration");
     var story = new Story("The astronaut gazed at Earth...");
     ReviewedStory review = new ReviewedStory("Compelling narrative with vivid imagery.");
-    
+
     // Set up expected responses in order
     context.expectResponse(story);
     context.expectResponse(review);
@@ -164,24 +523,66 @@ void shouldHandleMultipleLlmInteractions() {
     // Assert
     assertEquals(story, writtenStory);
     assertEquals(review, reviewedStory);
-    
+
     // Verify both LLM calls were made
     List<LlmInvocation> invocations = context.getLlmInvocations();
     assertEquals(2, invocations.size());
-    
+
     // Verify first call (writer)
     var writerCall = invocations.get(0);
     assertEquals(0.8, writerCall.getInteraction().getLlm().getTemperature(), 0.01);
-    
+
     // Verify second call (reviewer)
     var reviewerCall = invocations.get(1);
     assertEquals(0.2, reviewerCall.getInteraction().getLlm().getTemperature(), 0.01);
 }
 ----
 
-You can also use Mockito or mockk directory.
+Kotlin::
++
+[source,kotlin]
+----
+@Test
+fun `should handle multiple LLM interactions`() {
+    // Arrange
+    val input = UserInput("Write about space exploration")
+    val story = Story("The astronaut gazed at Earth...")
+    val review = ReviewedStory("Compelling narrative with vivid imagery.")
+
+    // Set up expected responses in order
+    context.expectResponse(story)
+    context.expectResponse(review)
+
+    // Act
+    val writtenStory = agent.writeStory(input, context)
+    val reviewedStory = agent.reviewStory(writtenStory, context)
+
+    // Assert
+    assertEquals(story, writtenStory)
+    assertEquals(review, reviewedStory)
+
+    // Verify both LLM calls were made
+    val invocations = context.llmInvocations
+    assertEquals(2, invocations.size)
+
+    // Verify first call (writer)
+    val writerCall = invocations[0]
+    assertEquals(0.8, writerCall.interaction.llm.temperature, 0.01)
+
+    // Verify second call (reviewer)
+    val reviewerCall = invocations[1]
+    assertEquals(0.2, reviewerCall.interaction.llm.temperature, 0.01)
+}
+----
+====
+
+You can also use Mockito or mockk directly.
 Consider this component, using direct injection of `Ai`:
 
+[tabs]
+====
+Java::
++
 [source,java]
 ----
 @Component
@@ -198,8 +599,30 @@ public record InjectedComponent(Ai ai) {
 }
 ----
 
-A unit test using Mockito to verify prompt and hyperparameters:
+Kotlin::
++
+[source,kotlin]
+----
+@Component
+class InjectedComponent(private val ai: Ai) {
 
+    data class Joke(val leadup: String, val punchline: String)
+
+    fun tellJokeAbout(topic: String): String {
+        return ai
+            .withDefaultLlm()
+            .generateText("Tell me a joke about $topic")
+    }
+}
+----
+====
+
+A unit test using Mockito (Java) or mockk (Kotlin) to verify prompt and hyperparameters:
+
+[tabs]
+====
+Java::
++
 [source,java]
 ----
 class InjectedComponentTest {
@@ -229,6 +652,38 @@ class InjectedComponentTest {
 }
 ----
 
+Kotlin::
++
+[source,kotlin]
+----
+class InjectedComponentTest {
+
+    @Test
+    fun `test tell joke about`() {
+        val mockAi = mockk<Ai>()
+        val mockPromptRunner = mockk<PromptRunner>()
+
+        val prompt = "Tell me a joke about frogs"
+        // Yep, an LLM came up with this joke.
+        val terribleJoke = """
+            Why don't frogs ever pay for drinks?
+            Because they always have a tadpole in their wallet!
+        """.trimIndent()
+
+        every { mockAi.withDefaultLlm() } returns mockPromptRunner
+        every { mockPromptRunner.generateText(prompt) } returns terribleJoke
+
+        val injectedComponent = InjectedComponent(mockAi)
+        val joke = injectedComponent.tellJokeAbout("frogs")
+
+        assertEquals(terribleJoke, joke)
+        verify { mockAi.withDefaultLlm() }
+        verify { mockPromptRunner.generateText(prompt) }
+    }
+}
+----
+====
+
 ==== Integration Testing
 
 Integration testing exercises complete agent workflows with real or mock external services while still avoiding actual LLM calls for predictability and speed.
@@ -249,13 +704,18 @@ Spring's https://docs.spring.io/spring-boot/reference/testing/testcontainers.htm
 
 Embabel provides `EmbabelMockitoIntegrationTest` as a base class that simplifies integration testing with convenient helper methods:
 
+[tabs]
+====
+Java::
++
 [source,java]
 ----
-
 /**
-* Use framework superclass to test the complete workflow of writing and reviewing a story.
-* This will run under Spring Boot against an AgentPlatform instance * that has loaded all our agents.
-*/ class StoryWriterIntegrationTest extends EmbabelMockitoIntegrationTest {
+ * Use framework superclass to test the complete workflow of writing and reviewing a story.
+ * This will run under Spring Boot against an AgentPlatform instance
+ * that has loaded all our agents.
+ */
+class StoryWriterIntegrationTest extends EmbabelMockitoIntegrationTest {
 
     @Test
     void shouldExecuteCompleteWorkflow() {
@@ -288,6 +748,50 @@ Embabel provides `EmbabelMockitoIntegrationTest` as a base class that simplifies
 }
 ----
 
+Kotlin::
++
+[source,kotlin]
+----
+/**
+ * Use framework superclass to test the complete workflow of writing and reviewing a story.
+ * This will run under Spring Boot against an AgentPlatform instance
+ * that has loaded all our agents.
+ */
+class StoryWriterIntegrationTest : EmbabelMockitoIntegrationTest() {
+
+    @Test
+    fun `should execute complete workflow`() {
+        val input = UserInput("Write about artificial intelligence")
+
+        val story = Story("AI will transform our world...")
+        val reviewedStory = ReviewedStory(story, "Excellent exploration of AI themes.", Personas.REVIEWER)
+
+        whenCreateObject(contains("Craft a short story"), Story::class.java)
+            .thenReturn(story)
+
+        // The second call uses generateText
+        whenGenerateText(contains("You will be given a short story to review"))
+            .thenReturn(reviewedStory.review)
+
+        val invocation = AgentInvocation.create(agentPlatform, ReviewedStory::class.java)
+        val reviewedStoryResult = invocation.invoke(input)
+
+        assertNotNull(reviewedStoryResult)
+        assertTrue(reviewedStoryResult.content.contains(story.text),
+            "Expected story content to be present: ${reviewedStoryResult.content}")
+        assertEquals(reviewedStory, reviewedStoryResult,
+            "Expected review to match: $reviewedStoryResult")
+
+        verifyCreateObjectMatching({ prompt -> prompt.contains("Craft a short story") }, Story::class.java) { llm ->
+            llm.llm.temperature == 0.9 && llm.toolGroups.isEmpty()
+        }
+        verifyGenerateTextMatching { prompt -> prompt.contains("You will be given a short story to review") }
+        verifyNoMoreInteractions()
+    }
+}
+----
+====
+
 ===== Key Integration Testing Features
 
 **Base Class Benefits:**
@@ -303,4 +807,3 @@ Embabel provides `EmbabelMockitoIntegrationTest` as a base class that simplifies
 - Verify temperature settings: `llm.getLlm().getTemperature() == 0.9`
 - Check tool groups: `llm.getToolGroups().isEmpty()`
 - Validate persona and other LLM options
-

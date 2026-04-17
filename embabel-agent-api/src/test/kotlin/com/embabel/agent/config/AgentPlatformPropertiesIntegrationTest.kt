@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,19 @@
 package com.embabel.agent.config
 
 import com.embabel.agent.api.common.autonomy.AutonomyProperties
-import com.embabel.agent.config.migration.DeprecatedPropertyScanningConfig
+import com.embabel.agent.spi.config.spring.AgentPlatformProperties
 import com.embabel.agent.spi.support.DefaultProcessIdGeneratorProperties
-import com.embabel.agent.web.sse.SseProperties
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Disabled
+import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.boot.context.properties.bind.Binder
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.core.env.Environment
-import org.springframework.test.context.TestPropertySource
 import org.springframework.test.context.ActiveProfiles
+import org.springframework.test.context.TestPropertySource
 
 /**
  * Integration tests for AgentPlatformProperties migration from legacy to unified configuration.
@@ -157,44 +156,46 @@ import org.springframework.test.context.ActiveProfiles
  */
 @SpringBootTest(classes = [AgentPlatformPropertiesIntegrationTest.TestConfiguration::class])
 @ActiveProfiles("test") // using FakeAIConfig
-@TestPropertySource(properties = [
-    // New AgentPlatformProperties (var properties) - these should always work
-    "embabel.agent.platform.name=test-platform",
-    "embabel.agent.platform.description=Test Platform Description",
-    "embabel.agent.platform.scanning.annotation=false",
-    "embabel.agent.platform.scanning.bean=true",
-    "embabel.agent.platform.ranking.max-attempts=15",
-    "embabel.agent.platform.ranking.backoff-millis=200",
-    "embabel.agent.platform.autonomy.agent-confidence-cut-off=0.8",
-    "embabel.agent.platform.autonomy.goal-confidence-cut-off=0.7",
-    "embabel.agent.platform.process-id-generation.include-version=true",
-    "embabel.agent.platform.process-id-generation.include-agent-name=true",
-    "embabel.agent.platform.llm-operations.prompts.maybe-prompt-template=custom_template",
-    "embabel.agent.platform.llm-operations.prompts.generate-examples-by-default=false",
-    "embabel.agent.platform.llm-operations.data-binding.max-attempts=20",
-    "embabel.agent.platform.llm-operations.data-binding.fixed-backoff-millis=50",
-    "embabel.agent.platform.models.anthropic.max-attempts=8",
-    "embabel.agent.platform.models.anthropic.backoff-millis=3000",
-    "embabel.agent.platform.models.openai.max-attempts=12",
-    "embabel.agent.platform.models.openai.backoff-millis=2500",
-    "embabel.agent.platform.sse.max-buffer-size=200",
-    "embabel.agent.platform.sse.max-process-buffers=2000",
-    "embabel.agent.platform.test.mock-mode=false",
+@TestPropertySource(
+    properties = [
+        // New AgentPlatformProperties (var properties) - these should always work
+        "embabel.agent.platform.name=test-platform",
+        "embabel.agent.platform.description=Test Platform Description",
+        "embabel.agent.platform.scanning.annotation=false",
+        "embabel.agent.platform.scanning.bean=true",
+        "embabel.agent.platform.ranking.max-attempts=15",
+        "embabel.agent.platform.ranking.backoff-millis=200",
+        "embabel.agent.platform.autonomy.agent-confidence-cut-off=0.8",
+        "embabel.agent.platform.autonomy.goal-confidence-cut-off=0.7",
+        "embabel.agent.platform.process-id-generation.include-version=true",
+        "embabel.agent.platform.process-id-generation.include-agent-name=true",
+        "embabel.agent.platform.llm-operations.prompts.maybe-prompt-template=custom_template",
+        "embabel.agent.platform.llm-operations.prompts.generate-examples-by-default=false",
+        "embabel.agent.platform.llm-operations.data-binding.max-attempts=20",
+        "embabel.agent.platform.llm-operations.data-binding.fixed-backoff-millis=50",
+        "embabel.agent.platform.models.anthropic.max-attempts=8",
+        "embabel.agent.platform.models.anthropic.backoff-millis=3000",
+        "embabel.agent.platform.models.openai.max-attempts=12",
+        "embabel.agent.platform.models.openai.backoff-millis=2500",
+        "embabel.agent.platform.sse.max-buffer-size=200",
+        "embabel.agent.platform.sse.max-process-buffers=2000",
+        "embabel.agent.platform.test.mock-mode=false",
+        "embabel.agent.platform.action-qos.default.max-attempts=6",
+        "embabel.agent.platform.action-qos.default.backoff-max-interval=1",
+        "embabel.agent.platform.action-qos.default.idempotent=true",
+        "embabel.agent.platform.action-qos.default.backoff-multiplier=1",
+        "embabel.agent.platform.action-qos.default.backoff-millis=1",
+        "agent-qos.agent.method.max-attempts=10",
 
-    // Migration scanning config (var properties) - known to work with environment variables
-    "embabel.agent.platform.migration.scanning.enabled=true",
-    "embabel.agent.platform.migration.scanning.include-packages[0]=com.embabel.agent",
-    "embabel.agent.platform.migration.scanning.include-packages[1]=com.test.package",
-    "embabel.agent.platform.migration.warnings.enabled=true",
-
-    // Legacy properties for val/var investigation (using @TestPropertySource instead of env vars)
-    "embabel.autonomy.agent-confidence-cut-off=0.95",
-    "embabel.autonomy.goal-confidence-cut-off=0.85",
-    "embabel.process-id-generation.include-version=true",
-    "embabel.process-id-generation.include-agent-name=true",
-    "embabel.sse.max-buffer-size=250",
-    "embabel.sse.max-process-buffers=2500"
-])
+        // Legacy properties for val/var investigation (using @TestPropertySource instead of env vars)
+        "embabel.autonomy.agent-confidence-cut-off=0.95",
+        "embabel.autonomy.goal-confidence-cut-off=0.85",
+        "embabel.process-id-generation.include-version=true",
+        "embabel.process-id-generation.include-agent-name=true",
+        "embabel.sse.max-buffer-size=250",
+        "embabel.sse.max-process-buffers=2500"
+    ]
+)
 class AgentPlatformPropertiesIntegrationTest {
 
     @Autowired
@@ -207,18 +208,21 @@ class AgentPlatformPropertiesIntegrationTest {
     private lateinit var legacyProcessIdProperties: DefaultProcessIdGeneratorProperties
 
     @Autowired
-    private lateinit var legacySseProperties: SseProperties
-
-    @Autowired
-    private lateinit var scanningConfig: DeprecatedPropertyScanningConfig
-
-    @Autowired
     private lateinit var environment: Environment
 
     @Test
     fun `should bind core platform properties correctly`() {
         assertThat(properties.name).isEqualTo("test-platform")
         assertThat(properties.description).isEqualTo("Test Platform Description")
+    }
+
+    @Test
+    fun `agent qos should bind correctly`() {
+        assertThat(properties.actionQos.default.maxAttempts).isEqualTo(6)
+        val bound = Binder.get(environment)
+            .bind("agent-qos.agent.method", AgentPlatformProperties.ActionQosProperties.ActionProperties::class.java)
+        assertThat(bound.isBound).isTrue()
+        assertThat(bound.get().maxAttempts).isEqualTo(10)
     }
 
     @Test
@@ -314,65 +318,6 @@ class AgentPlatformPropertiesIntegrationTest {
         println("Expected: 0.95, Actual: ${legacyAutonomyProperties.agentConfidenceCutOff}")
     }
 
-    @Test
-    fun `INVESTIGATION - EMBABEL_AGENT_PLATFORM_MIGRATION_SCANNING_INCLUDE_PACKAGES with var properties`() {
-        // This is the scenario that required changing val to var in DeprecatedPropertyScanningConfig
-        // Environment variable: EMBABEL_AGENT_PLATFORM_MIGRATION_SCANNING_INCLUDE_PACKAGES_0=com.test
-        // Property class: DeprecatedPropertyScanningConfig now uses 'var includePackages'
-
-        println("\n=== EMBABEL_AGENT_PLATFORM_MIGRATION_SCANNING_INCLUDE_PACKAGES Investigation ===\n")
-
-        // Check environment variable is set
-        val envValue0 = environment.getProperty("EMBABEL_AGENT_PLATFORM_MIGRATION_SCANNING_INCLUDE_PACKAGES_0")
-        val envValue1 = environment.getProperty("EMBABEL_AGENT_PLATFORM_MIGRATION_SCANNING_INCLUDE_PACKAGES_1")
-        println("Environment variable EMBABEL_AGENT_PLATFORM_MIGRATION_SCANNING_INCLUDE_PACKAGES_0: $envValue0")
-        println("Environment variable EMBABEL_AGENT_PLATFORM_MIGRATION_SCANNING_INCLUDE_PACKAGES_1: $envValue1")
-
-        // Check property resolution
-        val resolvedValue = environment.getProperty("embabel.agent.platform.migration.scanning.include-packages[0]")
-        println("Resolved property embabel.agent.platform.migration.scanning.include-packages[0]: $resolvedValue")
-
-        // Check actual binding result
-        println("DeprecatedPropertyScanningConfig.includePackages (var): ${scanningConfig.includePackages}")
-
-        // This should work because we changed from 'val' to 'var'
-        println("Include packages count: ${scanningConfig.includePackages.size}")
-        scanningConfig.includePackages.forEachIndexed { index, pkg ->
-            println("  [$index]: $pkg")
-        }
-    }
-
-    @Test
-    fun `COMPARISON - val vs var property binding behavior analysis`() {
-        println("\n=== VAL vs VAR BINDING ANALYSIS ===\n")
-
-        // Compare the two scenarios side by side
-        println("1. AutonomyProperties (val properties):")
-        println("   - Class: data class AutonomyProperties(val agentConfidenceCutOff: ZeroToOne = 0.6)")
-        println("   - Env var: EMBABEL_AUTONOMY_AGENT_CONFIDENCE_CUT_OFF=0.95")
-        println("   - Result: ${legacyAutonomyProperties.agentConfidenceCutOff}")
-        println("   - Binding works: ${legacyAutonomyProperties.agentConfidenceCutOff != 0.6}")
-
-        println("\n2. DeprecatedPropertyScanningConfig (var properties):")
-        println("   - Class: data class DeprecatedPropertyScanningConfig(var includePackages: List<String> = ...)")
-        println("   - Env var: EMBABEL_AGENT_PLATFORM_MIGRATION_SCANNING_INCLUDE_PACKAGES_0=com.test")
-        println("   - Result: ${scanningConfig.includePackages}")
-        println("   - Binding works: ${scanningConfig.includePackages.isNotEmpty()}")
-
-        // Print Spring Boot version and other context that might matter
-        println("\n3. Context Information:")
-        println("   - Spring Boot version: Check build.gradle/pom.xml")
-        println("   - Property source precedence: Environment variables > TestPropertySource > application.properties")
-
-        // Log all environment variables starting with EMBABEL for debugging
-        println("\n4. All EMBABEL Environment Variables:")
-        System.getenv().entries
-            .filter { it.key.startsWith("EMBABEL") }
-            .sortedBy { it.key }
-            .forEach { (key, value) ->
-                println("   $key=$value")
-            }
-    }
 
     /**
      * ❌ **EXPECTED TO FAIL** - This test validates that migration is working correctly.
@@ -404,16 +349,10 @@ class AgentPlatformPropertiesIntegrationTest {
         println("DefaultProcessIdGeneratorProperties:")
         println("  includeVersion (val): ${legacyProcessIdProperties.includeVersion}")
         println("  includeAgentName (val): ${legacyProcessIdProperties.includeAgentName}")
-
-        // 3. SseProperties (var properties)
-        println("SseProperties:")
-        println("  maxBufferSize (var): ${legacySseProperties.maxBufferSize}")
-        println("  maxProcessBuffers (var): ${legacySseProperties.maxProcessBuffers}")
     }
 
     @EnableConfigurationProperties(
         AgentPlatformProperties::class,
-        DeprecatedPropertyScanningConfig::class
     )
     class TestConfiguration {
 
@@ -427,9 +366,5 @@ class AgentPlatformPropertiesIntegrationTest {
             return DefaultProcessIdGeneratorProperties(platformProperties)
         }
 
-        @Bean
-        fun sseProperties(platformProperties: AgentPlatformProperties): SseProperties {
-            return SseProperties(platformProperties)
-        }
     }
 }

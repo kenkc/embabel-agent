@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,23 @@
  */
 package com.embabel.agent.core.support
 
+import com.embabel.agent.api.common.TerminationScope
+import com.embabel.agent.api.common.TerminationSignal
+import com.embabel.agent.api.termination.TerminationSignalPolicy
+import com.embabel.agent.api.tool.TerminateActionException
+import com.embabel.agent.api.tool.TerminateAgentException
 import com.embabel.agent.api.common.PlatformServices
 import com.embabel.agent.api.common.StuckHandlingResultCode
 import com.embabel.agent.api.common.ToolsStats
+import com.embabel.agent.api.event.*
 import com.embabel.agent.core.*
-import com.embabel.agent.event.*
+import com.embabel.agent.core.AgentProcess.Companion.withCurrent
 import com.embabel.agent.spi.DelayedActionExecutionSchedule
 import com.embabel.agent.spi.ProntoActionExecutionSchedule
 import com.embabel.agent.spi.ScheduledActionExecutionSchedule
 import com.embabel.agent.spi.support.AgenticEventListenerToolsStats
 import com.embabel.plan.WorldState
-import com.embabel.plan.goap.WorldStateDeterminer
+import com.embabel.plan.common.condition.WorldStateDeterminer
 import com.fasterxml.jackson.annotation.JsonIgnore
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -40,14 +46,14 @@ abstract class AbstractAgentProcess(
     override val id: String,
     override val parentId: String?,
     override val agent: Agent,
-    protected val processOptions: ProcessOptions,
-    protected val blackboard: Blackboard,
+    override val processOptions: ProcessOptions,
+    override val blackboard: Blackboard,
     @get:JsonIgnore
     protected val platformServices: PlatformServices,
     override val timestamp: Instant = Instant.now(),
 ) : AgentProcess, Blackboard by blackboard {
 
-    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
+    protected val logger: Logger = LoggerFactory.getLogger(javaClass)
 
     private var _lastWorldState: WorldState? = null
 
@@ -61,6 +67,56 @@ abstract class AbstractAgentProcess(
 
     override val failureInfo: Any?
         get() = _failureInfo
+
+    private var _terminationRequest: TerminationSignal? = null
+
+    internal val terminationRequest: TerminationSignal?
+        get() = _terminationRequest
+
+    private fun setTerminationRequest(signal: TerminationSignal) {
+        _terminationRequest = signal
+    }
+
+    internal fun resetTerminationRequest() {
+        _terminationRequest = null
+    }
+
+    override fun terminateAgent(reason: String) {
+        // Cascade to children first
+        val children = platformServices.agentProcessRepository.findByParentId(id)
+        children.forEach { child ->
+            logger.debug("Terminating child process {} of {}", child.id, id)
+            child.terminateAgent(reason)
+        }
+
+        // Exhaustive when - compile error if new status added
+        @Suppress(names=["UNUSED_VARIABLE"])
+        val _forceExhaustive = when (status) {
+            AgentProcessStatusCode.RUNNING,
+            AgentProcessStatusCode.NOT_STARTED -> {
+                // Will reach checkpoint - set signal for deferred termination
+                setTerminationRequest(TerminationSignal(TerminationScope.AGENT, reason))
+            }
+            AgentProcessStatusCode.KILLED,
+            AgentProcessStatusCode.FAILED,
+            AgentProcessStatusCode.TERMINATED -> {
+                // Already in terminal state - ignore
+                logger.info("Process {} already {}, ignoring terminate request", id, status)
+            }
+            AgentProcessStatusCode.COMPLETED,
+            AgentProcessStatusCode.STUCK,
+            AgentProcessStatusCode.WAITING,
+            AgentProcessStatusCode.PAUSED -> {
+                // No guaranteed next tick - set status immediately
+                logger.info("Terminating process {} (was {}): {}", id, status, reason)
+                setStatus(AgentProcessStatusCode.TERMINATED)
+            }
+        }
+    }
+
+    override fun terminateAction(reason: String) {
+        setTerminationRequest(TerminationSignal(TerminationScope.ACTION, reason))
+    }
 
     override val lastWorldState: WorldState?
         get() = _lastWorldState
@@ -83,6 +139,15 @@ abstract class AbstractAgentProcess(
      */
     protected abstract val worldStateDeterminer: WorldStateDeterminer
 
+    private val _llmInvocations = mutableListOf<LlmInvocation>()
+
+    override val llmInvocations: List<LlmInvocation>
+        get() = _llmInvocations.toList()
+
+    override fun recordLlmInvocation(llmInvocation: LlmInvocation) {
+        _llmInvocations.add(llmInvocation)
+    }
+
     override val status: AgentProcessStatusCode
         get() = _status.get()
 
@@ -97,6 +162,13 @@ abstract class AbstractAgentProcess(
     }
 
     override fun kill(): ProcessKilledEvent? {
+        // Kill child processes first (recursive)
+        val children = platformServices.agentProcessRepository.findByParentId(id)
+        children.forEach { child ->
+            logger.debug("Killing child process {} of {}", child.id, id)
+            child.kill()
+        }
+
         setStatus(AgentProcessStatusCode.KILLED)
         return ProcessKilledEvent(this)
     }
@@ -165,24 +237,16 @@ abstract class AbstractAgentProcess(
             return this
         }
 
-        if (agent.goals.isEmpty()) {
-            logger.info("🤔 Process {} has no goals: {}", this.id, agent.goals)
+        if (agent.goals.isEmpty() && processOptions.plannerType.needsGoals) {
+            logger.info("🛑 Process {} has no goals: {}", this.id, agent.goals)
             error("Agent ${agent.name} has no goals: ${agent.infoString(verbose = true)}")
         }
 
         tick()
+
         while (status == AgentProcessStatusCode.RUNNING) {
-            val earlyTermination = processOptions.control.earlyTerminationPolicy.shouldTerminate(this)
+            val earlyTermination = identifyEarlyTermination()
             if (earlyTermination != null) {
-                logger.debug(
-                    "Process {} terminated by {} because {}",
-                    this.id,
-                    earlyTermination.policy,
-                    earlyTermination.reason,
-                )
-                platformServices.eventListener.onProcessEvent(earlyTermination)
-                _failureInfo = earlyTermination
-                setStatus(AgentProcessStatusCode.TERMINATED)
                 return this
             }
             tick()
@@ -226,23 +290,77 @@ abstract class AbstractAgentProcess(
     }
 
     /**
+     * Should this process be terminated early?
+     * Also clears any pending termination requests after processing.
+     */
+    protected fun identifyEarlyTermination(): EarlyTermination? {
+        // Check for API-driven termination signal first
+        val signalTermination = TerminationSignalPolicy.shouldTerminate(this)
+        if (signalTermination != null) {
+            resetTerminationRequest()
+            logger.debug(
+                "Process {} terminated by termination signal: {}",
+                this.id,
+                signalTermination.reason,
+            )
+            platformServices.eventListener.onProcessEvent(signalTermination)
+            _failureInfo = signalTermination
+            setStatus(AgentProcessStatusCode.TERMINATED)
+            return signalTermination
+        }
+
+        // Clear any stale ACTION signal that wasn't consumed by tool loop
+        // (e.g., set by a simple action without tool loop)
+        val staleSignal = terminationRequest
+        if (staleSignal != null && staleSignal.scope == TerminationScope.ACTION) {
+            logger.debug("Clearing stale ACTION termination signal: {}", staleSignal.reason)
+            resetTerminationRequest()
+        }
+
+        // Check configured early termination policies
+        val earlyTermination = processOptions.processControl.earlyTerminationPolicy.shouldTerminate(this)
+        if (earlyTermination != null) {
+            logger.debug(
+                "Process {} terminated by {} because {}",
+                this.id,
+                earlyTermination.policy,
+                earlyTermination.reason,
+            )
+            platformServices.eventListener.onProcessEvent(earlyTermination)
+            _failureInfo = earlyTermination
+            setStatus(AgentProcessStatusCode.TERMINATED)
+            return earlyTermination
+        }
+        return null
+    }
+
+    /**
      * Try to resolve a stuck process using StuckHandler if provided
      */
     protected fun handleStuck(agent: Agent) {
         val stuckHandler = agent.stuckHandler
         if (stuckHandler == null) {
-            logger.warn(
-                "Process {} is stuck: no handler. History ({}):\n\t{}",
-                this.id,
-                history.size,
-                history.joinToString("\n\t") { it.actionName },
-            )
+            if (processOptions.plannerType.needsGoals) {
+                logger.warn(
+                    "Process {} is stuck with no StuckHandler. This may or may not be an error. History ({}):\n\t{}",
+                    this.id,
+                    history.size,
+                    history.joinToString("\n\t") { it.actionName },
+                )
+            } else {
+                // This is not an error. It's a common state for chatbots, for example.
+                logger.debug("Process {} is paused, with no available actions", this.id)
+            }
             return
         }
         val result = stuckHandler.handleStuck(this)
         platformServices.eventListener.onProcessEvent(result)
         when (result.code) {
             StuckHandlingResultCode.REPLAN -> {
+                if (finished) {
+                    logger.info("Process {} is {} during stuck handling, will not replan", this.id, status)
+                    return
+                }
                 logger.info("Process {} unstuck and will replan: {}", this.id, result.message)
                 setStatus(AgentProcessStatusCode.RUNNING)
                 run()
@@ -277,6 +395,9 @@ abstract class AbstractAgentProcess(
 
         // Let subclasses handle the planning and execution
         return formulateAndExecutePlan(worldState)
+            .apply {
+                platformServices.agentProcessRepository.update(this)
+            }
     }
 
 
@@ -336,11 +457,27 @@ abstract class AbstractAgentProcess(
             }
         }
 
+        // Capture blackboard state before execution to detect if it was cleared
+        val blackboardObjectsBefore = blackboard.objects.toList()
+
         val timestamp = Instant.now()
-        val actionStatus = action.qos.retryTemplate("Action-${action.name}").execute<ActionStatus, Throwable> {
-            action.execute(
-                processContext = processContext,
-            )
+        val actionStatus = try {
+            withCurrent {
+                val effectiveAction = action.withEffectiveQos(platformServices.actionQosProperties())
+                effectiveAction.qos
+                    .retryTemplate("Action-${action.name}")
+                    .execute<ActionStatus, Throwable> {
+                        effectiveAction.execute(
+                            processContext = processContext,
+                        )
+                    }
+            }
+        } catch (e: TerminateActionException) {
+            logger.info("Action {} terminated early: {}", action.name, e.reason)
+            ActionStatus(Duration.between(timestamp, Instant.now()), ActionStatusCode.TERMINATED)
+        } catch (e: TerminateAgentException) {
+            logger.info("Action {} requested agent termination: {}", action.name, e.reason)
+            ActionStatus(Duration.between(timestamp, Instant.now()), ActionStatusCode.AGENT_TERMINATED)
         }
         val runningTime = Duration.between(timestamp, Instant.now())
         _history += ActionInvocation(
@@ -348,6 +485,21 @@ abstract class AbstractAgentProcess(
             timestamp = timestamp,
             runningTime = runningTime,
         )
+
+        // Set hasRun condition on blackboard after action execution.
+        // This must be set for ALL actions (not just canRerun=false) because other
+        // actions may depend on hasRun as a precondition (e.g., aggregate actions).
+        // The canRerun flag controls whether hasRun=FALSE is a precondition, not
+        // whether to track that the action ran.
+        // Only set if the blackboard wasn't cleared during execution.
+        // For state-clearing actions, the blackboard reset naturally prevents re-runs
+        // since inputs are gone. Setting hasRun on the NEW state's blackboard would
+        // incorrectly block actions that haven't run in the new state.
+        val blackboardWasCleared = blackboard.objects.none { it in blackboardObjectsBefore }
+        if (!blackboardWasCleared) {
+            blackboard.setCondition(Rerun.hasRunCondition(action), true)
+        }
+
         platformServices.eventListener.onProcessEvent(
             actionExecutionStartEvent.resultEvent(
                 actionStatus = actionStatus,
@@ -381,6 +533,16 @@ abstract class AbstractAgentProcess(
             ActionStatusCode.PAUSED -> {
                 logger.debug("⏳ Process {} action {} paused", id, actionStatus.status)
                 AgentProcessStatusCode.PAUSED
+            }
+
+            ActionStatusCode.TERMINATED -> {
+                logger.debug("Process {} action terminated early, continuing", id)
+                AgentProcessStatusCode.RUNNING
+            }
+
+            ActionStatusCode.AGENT_TERMINATED -> {
+                logger.debug("Process {} action requested agent termination", id)
+                AgentProcessStatusCode.TERMINATED
             }
         }
     }

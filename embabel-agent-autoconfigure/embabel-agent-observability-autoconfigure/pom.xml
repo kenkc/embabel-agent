@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.embabel.agent</groupId>
+        <artifactId>embabel-agent-autoconfigure</artifactId>
+        <version>0.4.0-SNAPSHOT</version>
+    </parent>
+    <artifactId>embabel-agent-observability-autoconfigure</artifactId>
+    <packaging>jar</packaging>
+    <name>Embabel Agent Observability AutoConfiguration</name>
+    <description>Spring Boot AutoConfiguration for Embabel Agent Observability</description>
+    <url>https://github.com/embabel/embabel-agent</url>
+
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
+
+    <dependencies>
+        <!-- Embabel Agent Observability core module -->
+        <dependency>
+            <groupId>com.embabel.agent</groupId>
+            <artifactId>embabel-agent-observability</artifactId>
+        </dependency>
+
+        <!-- Spring Boot AutoConfigure -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Actuator (ObservationRegistryCustomizer) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring AOP for @Tracked aspect support -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Micrometer Tracing Bridge to OpenTelemetry (OtelTracer, OtelCurrentTraceContext) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- OpenTelemetry SDK (SdkTracerProvider, SpanExporter, SpanProcessor) -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring Web (for HTTP body caching and observation filters) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Servlet API (for OncePerRequestFilter, HttpServletRequest/Response) -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- OpenTelemetry Semantic Conventions (ServiceAttributes) -->
+        <dependency>
+            <groupId>io.opentelemetry.semconv</groupId>
+            <artifactId>opentelemetry-semconv</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.embabel.agent</groupId>
+            <artifactId>embabel-agent-test-internal</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

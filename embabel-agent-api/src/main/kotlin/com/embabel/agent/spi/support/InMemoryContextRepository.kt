@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
  */
 package com.embabel.agent.spi.support
 
-import com.embabel.agent.config.ContextRepositoryProperties
 import com.embabel.agent.core.Context
 import com.embabel.agent.spi.ContextRepository
+import com.embabel.agent.spi.config.spring.ContextRepositoryProperties
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -38,7 +38,11 @@ class InMemoryContextRepository(
     private val lock = ReentrantReadWriteLock()
 
     override fun create(): Context {
-        return save(SimpleContext(id = UUID.randomUUID().toString()))
+        return save(InMemoryContext(id = UUID.randomUUID().toString()))
+    }
+
+    override fun createWithId(id: String): Context {
+        return save(InMemoryContext(id = id))
     }
 
     override fun findById(id: String): Context? = lock.read {

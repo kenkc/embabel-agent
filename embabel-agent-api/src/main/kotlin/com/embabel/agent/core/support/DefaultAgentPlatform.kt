@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,32 +15,38 @@
  */
 package com.embabel.agent.core.support
 
+import com.embabel.agent.api.channel.OutputChannel
 import com.embabel.agent.api.common.Asyncer
-import com.embabel.agent.channel.OutputChannel
+import com.embabel.agent.api.event.AgentDeploymentEvent
+import com.embabel.agent.api.event.AgentProcessCreationEvent
+import com.embabel.agent.api.event.AgenticEventListener
 import com.embabel.agent.core.*
-import com.embabel.agent.event.AgentDeploymentEvent
-import com.embabel.agent.event.AgentProcessCreationEvent
-import com.embabel.agent.event.AgenticEventListener
+import com.embabel.agent.core.expression.LogicalExpressionParser
+import com.embabel.agent.core.internal.LlmOperations
 import com.embabel.agent.spi.*
+import com.embabel.agent.spi.config.spring.AgentPlatformProperties
+import com.embabel.agent.spi.support.DefaultPlannerFactory
 import com.embabel.agent.spi.support.InMemoryAgentProcessRepository
 import com.embabel.agent.spi.support.InMemoryContextRepository
 import com.embabel.agent.spi.support.SpringContextPlatformServices
 import com.embabel.common.textio.template.TemplateRenderer
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationContext
 import org.springframework.stereotype.Service
 import java.util.concurrent.ConcurrentHashMap
 
 @Service
-internal class DefaultAgentPlatform(
-    @param:Value("\${embabel.agent-platform.name:default-agent-platform}")
+open class DefaultAgentPlatform(
+    @param:Value("\${embabel.agent.platform.name:default-agent-platform}")
     override val name: String,
-    @param:Value("\${embabel.agent-platform.description:Default Agent Platform}")
+    @param:Value("\${embabel.agent.platform.description:Default Agent Platform}")
     override val description: String,
+    @param:Value("\${embabel.agent.platform.process-type:SIMPLE}")
+    val processType: AgentPlatformProperties.ProcessType,
     private val llmOperations: LlmOperations,
     override val toolGroupResolver: ToolGroupResolver,
     private val eventListener: AgenticEventListener,
@@ -48,16 +54,22 @@ internal class DefaultAgentPlatform(
     private val contextRepository: ContextRepository = InMemoryContextRepository(),
     private val agentProcessRepository: AgentProcessRepository = InMemoryAgentProcessRepository(),
     private val operationScheduler: OperationScheduler = OperationScheduler.PRONTO,
+    private val blackboardProvider: BlackboardProvider = InMemoryBlackboardProvider,
     private val asyncer: Asyncer,
+    @param:Qualifier("embabelJacksonObjectMapper")
     private val objectMapper: ObjectMapper,
     private val outputChannel: OutputChannel,
     private val templateRenderer: TemplateRenderer,
+    customLogicalExpressionParser: LogicalExpressionParser? = null,
     private val applicationContext: ApplicationContext? = null,
 ) : AgentPlatform {
 
+    @Autowired(required = false)
+    private var callbacks: List<AgentProcessCallback> = emptyList()
+
     private val logger = LoggerFactory.getLogger(DefaultAgentPlatform::class.java)
 
-    private val yamlObjectMapper = ObjectMapper(YAMLFactory()).registerKotlinModule()
+    private val plannerFactory: PlannerFactory = DefaultPlannerFactory
 
     private val agents: MutableMap<String, Agent> = ConcurrentHashMap()
 
@@ -71,6 +83,8 @@ internal class DefaultAgentPlatform(
         applicationContext = applicationContext,
         outputChannel = outputChannel,
         templateRenderer = templateRenderer,
+        agentProcessRepository = agentProcessRepository,
+        customLogicalExpressionParser = customLogicalExpressionParser,
     )
 
     init {
@@ -89,7 +103,9 @@ internal class DefaultAgentPlatform(
             logger.warn("Agent process {} not found", id)
             return null
         }
+
         logger.info("Killing agent process {}", id)
+        // process.kill() cascades to children automatically
         val killEvent = process.kill()
         if (killEvent != null) {
             eventListener.onProcessEvent(killEvent)
@@ -121,7 +137,7 @@ internal class DefaultAgentPlatform(
             )
             processOptions.blackboard
         } else {
-            InMemoryBlackboard()
+            blackboardProvider.createBlackboard()
         }
         if (processOptions.contextId != null) {
             val context = contextRepository.findById(processOptions.contextId.value)
@@ -161,14 +177,28 @@ internal class DefaultAgentPlatform(
         val blackboard = createBlackboard(processOptions, id)
         blackboard.bindAll(bindings)
 
-        val agentProcess = SimpleAgentProcess(
-            agent = agent,
-            platformServices = platformServices,
-            blackboard = blackboard,
-            id = id,
-            parentId = null,
-            processOptions = processOptions,
-        )
+        val agentProcess = when (processType) {
+            AgentPlatformProperties.ProcessType.SIMPLE -> SimpleAgentProcess(
+                agent = agent,
+                platformServices = platformServices,
+                blackboard = blackboard,
+                id = id,
+                parentId = null,
+                processOptions = processOptions,
+                plannerFactory = plannerFactory,
+            )
+
+            AgentPlatformProperties.ProcessType.CONCURRENT -> ConcurrentAgentProcess(
+                agent = agent,
+                platformServices = platformServices,
+                blackboard = blackboard,
+                id = id,
+                parentId = null,
+                processOptions = processOptions,
+                plannerFactory = plannerFactory,
+                callbacks = callbacks,
+            )
+        }
         logger.debug("🚀 Creating process {}", agentProcess.id)
         agentProcessRepository.save(agentProcess)
         eventListener.onProcessEvent(AgentProcessCreationEvent(agentProcess))
@@ -193,6 +223,7 @@ internal class DefaultAgentPlatform(
             }",
             parentId = parentAgentProcess.id,
             processOptions = processOptions,
+            plannerFactory = plannerFactory,
         )
         logger.debug("👶 Creating child process {} from {}", childAgentProcess.id, parentAgentProcess.id)
         agentProcessRepository.save(childAgentProcess)

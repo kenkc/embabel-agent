@@ -1,0 +1,1105 @@
+[[reference.planners]]
+=== Choosing a Planner
+
+Embabel supports multiple planning strategies.
+Most are deterministic, but their behaviour differs--although it is always predictable.
+
+All planning strategies are entirely typesafe in Java or Kotlin.
+
+The planning strategies currently supported out of the box are:
+
+[cols="1,2,3",options="header"]
+|===
+|Planner |Best For |Description
+
+|*GOAP* (default)
+|Business processes with defined outputs
+|Goal-oriented, deterministic planning. Plans a path from current state to goal using preconditions and effects.
+
+|*Utility*
+|Exploration and event-driven systems
+|Selects the highest-value available action at each step. Ideal when you don't know the outcome upfront.
+
+|*Supervisor*
+|Flexible multi-step workflows
+|LLM-orchestrated composition. An LLM selects which actions to call based on type schemas and gathered artifacts.
+|===
+
+As most of the documentation covers GOAP, this section discusses the alternative planners and nested workflows.
+
+[[reference.planners__utility]]
+==== Utility AI
+
+https://en.wikipedia.org/wiki/Utility_system[Utility AI] selects the action with the highest _net value_ from all available actions at each step.
+Unlike GOAP, which plans a path to a goal, Utility AI makes greedy decisions based on immediate value.
+
+Utility AI excels in *exploratory scenarios* where you don't know exactly what you want to achieve.
+Consider a GitHub issue triage system: when a new issue arrives, you don't have a predetermined goal.
+Instead, you want to react appropriately based on the issue's characteristics--maybe label it, maybe respond, maybe escalate.
+The "right" action depends on what you discover as you process it.
+
+This makes Utility AI ideal for scenarios where:
+
+* There is no clear end goal--you're exploring possibilities
+* Multiple actions could be valuable depending on context
+* You want to respond to changing conditions as they emerge
+* The best outcome isn't known upfront
+
+===== When to Use Utility AI
+
+* *Event-driven systems*: React to incoming events (issues, stars, webhooks) with the most appropriate action
+* *Chatbots*: Where the platform provides multiple response options and selects the best one
+* *Exploration*: When you want to discover what's possible rather than achieve a specific goal
+
+===== Using Utility AI with `@EmbabelComponent`
+
+For Utility AI, actions are typically provided via `@EmbabelComponent` rather than `@Agent`.
+This allows the _platform_ to select actions across multiple components based on utility, rather than constraining actions to a single agent.
+
+Here's an example from the Shepherd project that reacts to GitHub events:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@EmbabelComponent  // <1>
+public class IssueActions {
+
+    private final ShepherdProperties properties;
+    private final CommunityDataManager communityDataManager;
+    private final GitHubUpdater gitHubUpdater;
+
+    public IssueActions(ShepherdProperties properties,
+                        CommunityDataManager communityDataManager,
+                        GitHubUpdater gitHubUpdater) {
+        this.properties = properties;
+        this.communityDataManager = communityDataManager;
+        this.gitHubUpdater = gitHubUpdater;
+    }
+
+    @Action(outputBinding = "ghIssue")  // <2>
+    public GHIssue saveNewIssue(GHIssue ghIssue, OperationContext context) {
+        var existing = communityDataManager.findIssueByGithubId(ghIssue.getId());
+        if (existing == null) {
+            var issueEntityStatus = communityDataManager.saveAndExpandIssue(ghIssue);
+            context.add(issueEntityStatus);  // <3>
+            return ghIssue;
+        }
+        return null;  // <4>
+    }
+
+    @Action(
+        pre = {"spel:newEntity.newEntities.?[#this instanceof T(com.embabel.shepherd.domain.Issue)].size() > 0"}  // <5>
+    )
+    public IssueAssessment reactToNewIssue(GHIssue ghIssue, NewEntity<?> newEntity, Ai ai) {
+        return ai
+            .withLlm(properties.getTriageLlm())
+            .creating(IssueAssessment.class)
+            .fromTemplate("first_issue_response", Map.of("issue", ghIssue));  // <6>
+    }
+
+    @Action(pre = {"spel:issueAssessment.urgency > 0.0"})  // <7>
+    public void heavyHitterIssue(GHIssue issue, IssueAssessment issueAssessment) {
+        // Take action on high-urgency issues
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@EmbabelComponent  // <1>
+class IssueActions(
+    val properties: ShepherdProperties,
+    private val communityDataManager: CommunityDataManager,
+    private val gitHubUpdater: GitHubUpdater,
+) {
+
+    @Action(outputBinding = "ghIssue")  // <2>
+    fun saveNewIssue(ghIssue: GHIssue, context: OperationContext): GHIssue? {
+        val existing = communityDataManager.findIssueByGithubId(ghIssue.id)
+        if (existing == null) {
+            val issueEntityStatus = communityDataManager.saveAndExpandIssue(ghIssue)
+            context += issueEntityStatus  // <3>
+            return ghIssue
+        }
+        return null  // <4>
+    }
+
+    @Action(
+        pre = ["spel:newEntity.newEntities.?[#this instanceof T(com.embabel.shepherd.domain.Issue)].size() > 0"]  // <5>
+    )
+    fun reactToNewIssue(
+        ghIssue: GHIssue,
+        newEntity: NewEntity<*>,
+        ai: Ai
+    ): IssueAssessment {
+        return ai
+            .withLlm(properties.triageLlm)
+            .creating(IssueAssessment::class.java)
+            .fromTemplate("first_issue_response", mapOf("issue" to ghIssue))  // <6>
+    }
+
+    @Action(pre = ["spel:issueAssessment.urgency > 0.0"])  // <7>
+    fun heavyHitterIssue(issue: GHIssue, issueAssessment: IssueAssessment) {
+        // Take action on high-urgency issues
+    }
+}
+----
+====
+
+<1> `@EmbabelComponent` contributes actions to the platform, not a specific agent
+<2> `outputBinding` names the result for later actions to reference
+<3> Add entity status to context, making it available to subsequent actions
+<4> Returning `null` prevents further actions from firing for this issue
+<5> SpEL precondition: only fire if new issues were created
+<6> Use AI to assess the issue via a template
+<7> This action only fires if the assessment shows urgency > 0
+
+The platform selects which action to run based on:
+
+1. Which preconditions are satisfied (type availability + SpEL conditions)
+2. The `cost` and `value` parameters on `@Action` (net value = value - cost)
+
+===== Action Cost and Value
+
+The `@Action` annotation supports `cost` and `value` parameters (both 0.0 to 1.0):
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Action(
+    cost = 0.1,   // <1>
+    value = 0.8   // <2>
+)
+public Output highValueAction(Input input) {
+    // Action implementation
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Action(
+    cost = 0.1,   // <1>
+    value = 0.8   // <2>
+)
+fun highValueAction(input: Input): Output {
+    // Action implementation
+}
+----
+====
+
+<1> Cost to execute (0.0 to 1.0) - lower is cheaper
+<2> Value when executed (0.0 to 1.0) - higher is more valuable
+
+The Utility planner calculates _net value_ as `value - cost` and selects the action with the highest net value from all available actions.
+
+===== The Nirvana Goal
+
+Utility AI supports a special "Nirvana" goal that is never satisfied.
+This keeps the process running, continuously selecting the highest-value available action until no actions are available.
+
+===== Extensibility
+
+Utility AI fosters extensibility.
+For example, multiple groups within an organization can contribute their own `@EmbabelComponent` classes with actions that bring their own expertise to enhance behaviours around shared types, while retaining the ability to own and control their own extended model.
+
+===== Utility and States
+
+Utility AI can combine with the `@State` annotation to implement classification and routing patterns.
+This is particularly useful when you need to:
+
+* *Classify input* into different categories at runtime
+* *Route processing* through category-specific handlers
+* *Achieve different goals* based on classification
+
+The key pattern is:
+
+1. An entry action classifies input and returns a `@State` type
+2. Each `@State` class contains an `@AchievesGoal` action that produces the final output
+3. The `@AchievesGoal` output is _not_ a `@State` type (to prevent infinite loops)
+
+Here's an example of a ticket triage system that routes support tickets based on severity:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Agent(
+    description = "Triage and process support tickets",
+    planner = PlannerType.UTILITY  // <1>
+)
+public class TicketTriageAgent {
+
+    public record Ticket(String id, String description, String customerId) {}
+    public record ResolvedTicket(String id, String resolution, String handledBy) {}
+
+    @State
+    public sealed interface TicketCategory permits CriticalTicket, BugTicket, GeneralTicket {}  // <2>
+
+    @Action
+    public TicketCategory triageTicket(Ticket ticket) {  // <3>
+        if (ticket.description().toLowerCase().contains("down")) {
+            return new CriticalTicket(ticket);
+        } else if (ticket.description().toLowerCase().contains("bug")) {
+            return new BugTicket(ticket);
+        } else {
+            return new GeneralTicket(ticket);
+        }
+    }
+
+    @State
+    public record CriticalTicket(Ticket ticket) implements TicketCategory {
+        @AchievesGoal(description = "Handle critical ticket with immediate escalation")  // <4>
+        @Action
+        public ResolvedTicket handleCritical() {
+            return new ResolvedTicket(
+                ticket.id(),
+                "Escalated to on-call engineer",
+                "CRITICAL_RESPONSE_TEAM"
+            );
+        }
+    }
+
+    @State
+    public record BugTicket(Ticket ticket) implements TicketCategory {
+        @AchievesGoal(description = "Handle bug report")
+        @Action
+        public ResolvedTicket handleBug() {
+            return new ResolvedTicket(
+                ticket.id(),
+                "Bug logged in issue tracker",
+                "ENGINEERING_TEAM"
+            );
+        }
+    }
+
+    @State
+    public record GeneralTicket(Ticket ticket) implements TicketCategory {
+        @AchievesGoal(description = "Handle general inquiry")
+        @Action
+        public ResolvedTicket handleGeneral() {
+            return new ResolvedTicket(
+                ticket.id(),
+                "Response sent with FAQ links",
+                "SUPPORT_TEAM"
+            );
+        }
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Agent(
+    description = "Triage and process support tickets",
+    planner = PlannerType.UTILITY  // <1>
+)
+class TicketTriageAgent {
+
+    data class Ticket(val id: String, val description: String, val customerId: String)
+    data class ResolvedTicket(val id: String, val resolution: String, val handledBy: String)
+
+    @State
+    sealed interface TicketCategory  // <2>
+
+    @Action
+    fun triageTicket(ticket: Ticket): TicketCategory {  // <3>
+        return when {
+            ticket.description.contains("down", ignoreCase = true) ->
+                CriticalTicket(ticket)
+            ticket.description.contains("bug", ignoreCase = true) ->
+                BugTicket(ticket)
+            else ->
+                GeneralTicket(ticket)
+        }
+    }
+
+    @State
+    data class CriticalTicket(val ticket: Ticket) : TicketCategory {
+        @AchievesGoal(description = "Handle critical ticket with immediate escalation")  // <4>
+        @Action
+        fun handleCritical(): ResolvedTicket {
+            return ResolvedTicket(
+                id = ticket.id,
+                resolution = "Escalated to on-call engineer",
+                handledBy = "CRITICAL_RESPONSE_TEAM"
+            )
+        }
+    }
+
+    @State
+    data class BugTicket(val ticket: Ticket) : TicketCategory {
+        @AchievesGoal(description = "Handle bug report")
+        @Action
+        fun handleBug(): ResolvedTicket {
+            return ResolvedTicket(
+                id = ticket.id,
+                resolution = "Bug logged in issue tracker",
+                handledBy = "ENGINEERING_TEAM"
+            )
+        }
+    }
+
+    @State
+    data class GeneralTicket(val ticket: Ticket) : TicketCategory {
+        @AchievesGoal(description = "Handle general inquiry")
+        @Action
+        fun handleGeneral(): ResolvedTicket {
+            return ResolvedTicket(
+                id = ticket.id,
+                resolution = "Response sent with FAQ links",
+                handledBy = "SUPPORT_TEAM"
+            )
+        }
+    }
+}
+----
+====
+
+<1> Use `PlannerType.UTILITY` for opportunistic action selection
+<2> Sealed interface as the state supertype
+<3> Entry action classifies and returns a `@State` instance
+<4> Each state has an `@AchievesGoal` action producing the final output
+
+When a `Ticket` is processed:
+
+1. The `triageTicket` action classifies it into one of the state types
+2. Entering a state clears other objects from the blackboard
+3. The Utility planner selects the `@AchievesGoal` action for that state
+4. The goal is achieved when `ResolvedTicket` is produced
+
+This pattern works well when:
+
+* Classification determines the processing path
+* Each category has distinct handling requirements
+* The final output type is the same across all categories
+
+[[reference.planners__utility-invocation]]
+===== UtilityInvocation: Lightweight Utility Pattern
+
+For simple utility workflows, you don't need to create an `@Agent` class.
+`UtilityInvocation` provides a fluent API to run utility-based workflows directly from `@EmbabelComponent` actions.
+
+.Invoking with UtilityInvocation
+[tabs]
+====
+Java::
++
+[source,java]
+----
+UtilityInvocation.on(agentPlatform)
+    .withScope(AgentScopeBuilder.fromInstances(issueActions, labelActions))
+    .run(new GHIssue(issueData));
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+UtilityInvocation.on(agentPlatform)
+    .withScope(AgentScopeBuilder.fromInstances(issueActions, labelActions))
+    .run(GHIssue(issueData))
+----
+====
+
+====== Configuration Options
+
+`UtilityInvocation` supports several configuration methods:
+
+[cols="1,3",options="header"]
+|===
+|Method |Description
+
+|`.withScope(AgentScopeBuilder)`
+|Defines which actions are available
+
+|`.withAgentName(String)`
+|Sets a custom name for the created agent (defaults to platform name)
+
+|`.withProcessOptions(ProcessOptions)`
+|Configures process-level options
+
+|`.terminateWhenStuck()`
+|Adds early termination policy when no actions are available
+|===
+
+.Setting a custom agent name
+[tabs]
+====
+Java::
++
+[source,java]
+----
+UtilityInvocation.on(agentPlatform)
+    .withScope(AgentScopeBuilder.fromInstance(myActions))
+    .withAgentName("issue-triage-agent")
+    .run(input);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+UtilityInvocation.on(agentPlatform)
+    .withScope(AgentScopeBuilder.fromInstance(myActions))
+    .withAgentName("issue-triage-agent")
+    .run(input)
+----
+====
+
+[[reference.planners__supervisor]]
+==== Supervisor
+
+The Supervisor planner uses an LLM to orchestrate actions dynamically.
+This is a popular pattern in frameworks like https://langchain-ai.github.io/langgraph/concepts/agentic_concepts/#supervisor[LangGraph] and https://google.github.io/adk-docs/agents/multi-agents/#supervisor-agent-sample[Google ADK], where a supervisor LLM decides which tools to call and in what order.
+
+[NOTE]
+====
+Unlike GOAP and Utility, the Supervisor planner is *non-deterministic*.
+The LLM may choose different action sequences for the same inputs.
+This makes it less suitable for business-critical workflows requiring reproducibility.
+====
+
+===== Type-Informed vs Type-Driven
+
+A key design decision in supervisor architectures is how types relate to composition:
+
+[cols="1,3",options="header"]
+|===
+|Approach |Description
+
+|*Type-Driven* (GOAP)
+|Types _constrain_ composition. An action requiring `MarketData` can only run after an action produces `MarketData`. This is deterministic but rigid.
+
+|*Type-Informed* (Supervisor)
+|Types _inform_ composition. The LLM sees type schemas and decides what to call based on semantic understanding. This is flexible but non-deterministic.
+|===
+
+Embabel's Supervisor planner takes the *type-informed* approach while maximizing the benefits of types:
+
+* Actions return *typed outputs* that are validated
+* The LLM sees *type schemas* to understand what each action produces
+* Results are stored on the *typed blackboard* for later actions
+* The same actions work with *any planner* (GOAP, Utility, or Supervisor)
+
+This is a "typed supervisor" pattern--a middle ground between fully type-driven (GOAP) and untyped string-passing (typical LangGraph).
+
+===== When to Use Supervisor
+
+Supervisor is appropriate when:
+
+* Action ordering is *context-dependent* and hard to predefine
+* You want an LLM to *synthesize information* across multiple sources
+* The workflow benefits from *flexible composition* rather than strict sequencing
+* Non-determinism is acceptable for your use case
+
+Supervisor is *not* recommended when:
+
+* You need *reproducible*, auditable execution paths
+* Actions have strict *dependency ordering* that must be enforced
+* Latency and cost matter (each decision requires an LLM call)
+
+===== Using Supervisor
+
+To use Supervisor, annotate your agent with `planner = PlannerType.SUPERVISOR` and mark one action with `@AchievesGoal`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Agent(
+    planner = PlannerType.SUPERVISOR,
+    description = "Market research report generator"
+)
+public class MarketResearchAgent {
+
+    public record MarketDataRequest(String topic) {}
+    public record MarketData(Map<String, String> revenues, Map<String, Double> marketShare) {}
+
+    public record CompetitorAnalysisRequest(List<String> companies) {}
+    public record CompetitorAnalysis(Map<String, List<String>> strengths) {}
+
+    public record ReportRequest(String topic, List<String> companies) {}
+    public record FinalReport(String title, List<String> sections) {}
+
+    @Action(description = "Gather market data including revenues and market share")  // <1>
+    public MarketData gatherMarketData(MarketDataRequest request, Ai ai) {
+        return ai.withDefaultLlm().createObject(
+            "Generate market data for: " + request.topic(),
+            MarketData.class
+        );
+    }
+
+    @Action(description = "Analyze competitors: strengths and positioning")
+    public CompetitorAnalysis analyzeCompetitors(CompetitorAnalysisRequest request, Ai ai) {
+        return ai.withDefaultLlm().createObject(
+            "Analyze competitors: " + String.join(", ", request.companies()),
+            CompetitorAnalysis.class
+        );
+    }
+
+    @AchievesGoal(description = "Compile all information into a final report")  // <2>
+    @Action(description = "Compile the final report")
+    public FinalReport compileReport(ReportRequest request, Ai ai) {
+        return ai.withDefaultLlm().createObject(
+            "Create a market research report for " + request.topic(),
+            FinalReport.class
+        );
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Agent(
+    planner = PlannerType.SUPERVISOR,
+    description = "Market research report generator"
+)
+class MarketResearchAgent {
+
+    data class MarketDataRequest(val topic: String)
+    data class MarketData(val revenues: Map<String, String>, val marketShare: Map<String, Double>)
+
+    data class CompetitorAnalysisRequest(val companies: List<String>)
+    data class CompetitorAnalysis(val strengths: Map<String, List<String>>)
+
+    data class ReportRequest(val topic: String, val companies: List<String>)
+    data class FinalReport(val title: String, val sections: List<String>)
+
+    @Action(description = "Gather market data including revenues and market share")  // <1>
+    fun gatherMarketData(request: MarketDataRequest, ai: Ai): MarketData {
+        return ai.withDefaultLlm().createObject(
+            "Generate market data for: ${request.topic}"
+        )
+    }
+
+    @Action(description = "Analyze competitors: strengths and positioning")
+    fun analyzeCompetitors(request: CompetitorAnalysisRequest, ai: Ai): CompetitorAnalysis {
+        return ai.withDefaultLlm().createObject(
+            "Analyze competitors: ${request.companies.joinToString()}"
+        )
+    }
+
+    @AchievesGoal(description = "Compile all information into a final report")  // <2>
+    @Action(description = "Compile the final report")
+    fun compileReport(request: ReportRequest, ai: Ai): FinalReport {
+        return ai.withDefaultLlm().createObject(
+            "Create a market research report for ${request.topic}"
+        )
+    }
+}
+----
+====
+
+<1> Tool actions have descriptions visible to the supervisor LLM
+<2> The goal action is called when the supervisor has gathered enough information
+
+The supervisor LLM sees type schemas for available actions:
+
+[source]
+----
+Available actions:
+- gatherMarketData(request: MarketDataRequest) -> MarketData
+    Schema: { revenues: Map, marketShare: Map }
+- analyzeCompetitors(request: CompetitorAnalysisRequest) -> CompetitorAnalysis
+    Schema: { strengths: Map }
+
+Current artifacts on blackboard:
+- MarketData: { revenues: {"CompanyA": "$10B"}, marketShare: {...} }
+
+Goal: FinalReport
+----
+
+The LLM decides action ordering based on this information, making informed decisions without being constrained by declared dependencies.
+
+===== Interoperability
+
+Using wrapper request types (like `MarketDataRequest`) enables actions to work with *any planner*:
+
+* *GOAP*: Request types flow through the blackboard based on preconditions/effects
+* *Utility*: Actions fire when their request types are available with highest net value
+* *Supervisor*: The LLM constructs request objects to call actions
+
+This means you can switch planners without changing your action code--useful for testing with deterministic planners (GOAP) and deploying with flexible planners (Supervisor).
+
+===== Comparison with LangGraph
+
+https://github.com/langchain-ai/langgraph-supervisor-py[LangGraph's supervisor pattern] is a popular approach for multi-agent orchestration.
+Here's how a similar workflow looks in LangGraph vs Embabel:
+
+.LangGraph (Python)
+[source,python]
+----
+from langgraph_supervisor import create_supervisor
+from langgraph.prebuilt import create_react_agent
+
+# Tools return strings - no type information
+def gather_market_data(topic: str) -> str:
+    """Gather market data for a topic."""
+    return f"Revenue data for {topic}..."  # <1>
+
+def analyze_competitors(companies: str) -> str:
+    """Analyze competitors."""
+    return f"Analysis of {companies}..."  # <1>
+
+# Create agents with tools
+research_agent = create_react_agent(
+    model="openai:gpt-4o",
+    tools=[gather_market_data, analyze_competitors],
+    name="research_expert",
+)
+
+# Supervisor sees all tools, always  # <2>
+workflow = create_supervisor([research_agent], model=model)
+app = workflow.compile()
+
+# State is a dict of messages  # <3>
+result = app.invoke({"messages": [{"role": "user", "content": "Research cloud market"}]})
+----
+
+<1> Tools return strings--the LLM must parse and interpret results
+<2> All tools always visible--no filtering based on context
+<3> State is untyped message history
+
+.Embabel
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Agent(planner = PlannerType.SUPERVISOR)
+public class MarketResearchAgent {
+
+    // Tools return typed objects with schemas  // <1>
+    @Action(description = "Gather market data for a topic")
+    public MarketData gatherMarketData(MarketDataRequest request, Ai ai) {
+        return ai.withDefaultLlm().createObject(
+            "Generate market data for " + request.topic(), MarketData.class);
+    }
+
+    @Action(description = "Analyze competitors")
+    public CompetitorAnalysis analyzeCompetitors(CompetitorAnalysisRequest request, Ai ai) {
+        return ai.withDefaultLlm().createObject(
+            "Analyze " + request.companies(), CompetitorAnalysis.class);
+    }
+
+    @AchievesGoal
+    @Action
+    public FinalReport compileReport(ReportRequest request, Ai ai) { ... }
+}
+
+// State is a typed blackboard  // <2>
+// Tools are filtered based on available inputs  // <3>
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Agent(planner = PlannerType.SUPERVISOR)
+class MarketResearchAgent {
+
+    // Tools return typed objects with schemas  // <1>
+    @Action(description = "Gather market data for a topic")
+    fun gatherMarketData(request: MarketDataRequest, ai: Ai): MarketData {
+        return ai.withDefaultLlm().createObject("Generate market data for ${request.topic}")
+    }
+
+    @Action(description = "Analyze competitors")
+    fun analyzeCompetitors(request: CompetitorAnalysisRequest, ai: Ai): CompetitorAnalysis {
+        return ai.withDefaultLlm().createObject("Analyze ${request.companies}")
+    }
+
+    @AchievesGoal
+    @Action
+    fun compileReport(request: ReportRequest, ai: Ai): FinalReport { ... }
+}
+
+// State is a typed blackboard  // <2>
+// Tools are filtered based on available inputs  // <3>
+----
+====
+
+<1> Tools return typed, validated objects--`MarketData`, `CompetitorAnalysis`
+<2> Blackboard holds typed artifacts, not just message strings
+<3> Tools with satisfied inputs are prioritized via currying
+
+===== Key Advantages
+
+Embabel's Supervisor offers several advantages over typical supervisor implementations:
+
+[cols="1,2,2",options="header"]
+|===
+|Aspect |Typical Supervisor (LangGraph) |Embabel Supervisor
+
+|*Output Types*
+|Strings--LLM must parse
+|Typed objects--validated and structured
+
+|*Tool Visibility*
+|All tools always available
+|Tools filtered by blackboard state (currying)
+
+|*Domain Awareness*
+|None--tools are opaque functions
+|Type schemas visible to LLM
+
+|*Determinism*
+|Fully non-deterministic
+|Semi-deterministic: tool availability constrained by types
+
+|*State*
+|Untyped message history
+|Typed blackboard with named artifacts
+|===
+
+====== Blackboard-Driven Tool Filtering
+
+A key differentiator is *curried tool filtering*.
+When an action's inputs are already on the blackboard, those parameters are "curried out"--the tool signature simplifies.
+
+[NOTE]
+.What is Currying?
+====
+https://en.wikipedia.org/wiki/Currying[Currying] is a functional programming technique where a function with multiple parameters is transformed into a sequence of functions, each taking a single parameter.
+
+In Embabel's context: if an action requires `(MarketDataRequest, Ai)` and `MarketDataRequest` is already on the blackboard, we "curry out" that parameter--the tool exposed to the LLM only needs to provide any remaining parameters.
+This simplifies the LLM's task and signals which tools are "ready" to run.
+====
+
+[source]
+----
+# Initial state: empty blackboard
+Available tools:
+- gatherMarketData(request: MarketDataRequest) -> MarketData
+- analyzeCompetitors(request: CompetitorAnalysisRequest) -> CompetitorAnalysis
+
+# After MarketData is gathered:
+Available tools:
+- gatherMarketData(request: MarketDataRequest) -> MarketData  [READY - 0 params needed]
+- analyzeCompetitors(request: CompetitorAnalysisRequest) -> CompetitorAnalysis
+----
+
+This reduces the LLM's decision space and guides it toward logical next steps--tools with satisfied inputs appear "ready" with fewer parameters.
+This is more deterministic than showing all tools equally, while remaining more flexible than GOAP's strict ordering.
+
+====== Semi-Determinism
+
+While still LLM-orchestrated, Embabel's Supervisor is *more deterministic* than typical implementations:
+
+1. *Type constraints*: Actions can only produce specific types--no arbitrary string outputs
+2. *Input filtering*: Tools unavailable until their input types exist
+3. *Schema guidance*: LLM sees what each action produces, not just descriptions
+4. *Validated outputs*: Results must conform to declared types
+
+This makes debugging easier and behaviour more predictable, while retaining the flexibility that makes supervisor patterns valuable.
+
+====== When Embabel's Approach Excels
+
+* *Domain-rich workflows*: When your domain has clear types (reports, analyses, forecasts), schemas help the LLM understand relationships
+* *Multi-step synthesis*: When actions build on each other's outputs, typed blackboard tracks progress clearly
+* *Hybrid determinism*: When you want more predictability than pure LLM orchestration but more flexibility than GOAP
+
+[[reference.planners__supervisor-invocation]]
+===== SupervisorInvocation: Lightweight Supervisor Pattern
+
+For simple supervisor workflows, you don't need to create an `@Agent` class.
+`SupervisorInvocation` provides a fluent API to run supervisor-orchestrated workflows directly from `@EmbabelComponent` actions.
+
+This is ideal when:
+
+* You have a small set of related actions in an `@EmbabelComponent`
+* You want LLM-orchestrated composition without creating a full agent
+* You're prototyping or exploring supervisor patterns before committing to a full agent design
+
+====== Example: Meal Preparation Workflow
+
+Here's a complete example from the https://github.com/embabel/embabel-agent-examples[embabel-agent-examples] repository:
+
+.Stages - Actions as @EmbabelComponent
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@EmbabelComponent
+public class Stages {
+
+    public record Cook(String name, int age) {}
+
+    public record Order(String dish, int quantity) {}
+
+    public record Meal(String dish, int quantity, String orderedBy, String cookedBy) {}
+
+    @Action
+    public Cook chooseCook(UserInput userInput, Ai ai) {
+        return ai.withAutoLlm().createObject(
+                """
+                From the following user input, choose a cook.
+                User input: %s
+                """.formatted(userInput),
+                Cook.class
+        );
+    }
+
+    @Action
+    public Order takeOrder(UserInput userInput, Ai ai) {
+        return ai.withAutoLlm().createObject(
+                """
+                From the following user input, take a food order
+                User input: %s
+                """.formatted(userInput),
+                Order.class
+        );
+    }
+
+    @Action
+    @AchievesGoal(description = "Cook the meal according to the order")
+    public Meal prepareMeal(Cook cook, Order order, UserInput userInput, Ai ai) {
+        // The model will get the orderedBy from UserInput
+        return ai.withAutoLlm().createObject(
+                """
+                Prepare a meal based on the cook and order details and target customer
+                Cook: %s, age %d
+                Order: %d x %s
+                User input: %s
+                """.formatted(cook.name(), cook.age(), order.quantity(), order.dish(), userInput.getContent()),
+                Meal.class
+        );
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@EmbabelComponent
+class Stages {
+
+    data class Cook(val name: String, val age: Int)
+
+    data class Order(val dish: String, val quantity: Int)
+
+    data class Meal(val dish: String, val quantity: Int, val orderedBy: String, val cookedBy: String)
+
+    @Action
+    fun chooseCook(userInput: UserInput, ai: Ai): Cook {
+        return ai.withAutoLlm().createObject(
+            """
+            From the following user input, choose a cook.
+            User input: $userInput
+            """.trimIndent()
+        )
+    }
+
+    @Action
+    fun takeOrder(userInput: UserInput, ai: Ai): Order {
+        return ai.withAutoLlm().createObject(
+            """
+            From the following user input, take a food order
+            User input: $userInput
+            """.trimIndent()
+        )
+    }
+
+    @Action
+    @AchievesGoal(description = "Cook the meal according to the order")
+    fun prepareMeal(cook: Cook, order: Order, userInput: UserInput, ai: Ai): Meal {
+        // The model will get the orderedBy from UserInput
+        return ai.withAutoLlm().createObject(
+            """
+            Prepare a meal based on the cook and order details and target customer
+            Cook: ${cook.name}, age ${cook.age}
+            Order: ${order.quantity} x ${order.dish}
+            User input: ${userInput.content}
+            """.trimIndent()
+        )
+    }
+}
+----
+====
+
+.Invoking with SupervisorInvocation
+[tabs]
+====
+Java::
++
+[source,java]
+----
+Stages stages = new Stages();
+
+Meal meal = SupervisorInvocation.on(agentPlatform)
+    .returning(Stages.Meal.class)
+    .withScope(AgentScopeBuilder.fromInstance(stages))
+    .invoke(new UserInput(request));
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val stages = Stages()
+
+val meal = SupervisorInvocation.on(agentPlatform)
+    .returning(Stages.Meal::class.java)
+    .withScope(AgentScopeBuilder.fromInstance(stages))
+    .invoke(UserInput(request))
+----
+====
+
+====== Configuration Options
+
+`SupervisorInvocation` supports several configuration methods:
+
+[cols="1,3",options="header"]
+|===
+|Method |Description
+
+|`.returning(Class)`
+|Specifies the goal type to produce
+
+|`.withScope(AgentScopeBuilder)`
+|Defines which actions are available
+
+|`.withAgentName(String)`
+|Sets a custom name for the created agent (defaults to `{platformName}.supervisor`)
+
+|`.withGoalDescription(String)`
+|Provides a custom description for the goal
+
+|`.withProcessOptions(ProcessOptions)`
+|Configures process-level options
+|===
+
+.Setting a custom agent name
+[tabs]
+====
+Java::
++
+[source,java]
+----
+SupervisorInvocation.on(agentPlatform)
+    .returning(Report.class)
+    .withScope(AgentScopeBuilder.fromInstance(actions))
+    .withAgentName("market-research-supervisor")
+    .invoke(request);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+SupervisorInvocation.on(agentPlatform)
+    .returning(Report::class.java)
+    .withScope(AgentScopeBuilder.fromInstance(actions))
+    .withAgentName("market-research-supervisor")
+    .invoke(request)
+----
+====
+
+The supervisor LLM sees:
+
+1. *Available actions* with their type signatures and schemas
+2. *Current artifacts* on the blackboard (including `UserInput` content)
+3. *Goal* to produce a `Meal`
+
+It then orchestrates the actions—calling `chooseCook` and `takeOrder` (possibly in parallel), then `prepareMeal` when the dependencies are satisfied.
+
+====== Key Design Points
+
+1. **Actions use UserInput explicitly**: Each action receives `UserInput` and includes it in the LLM prompt, ensuring the actual user request is used.
+2. **@AchievesGoal marks the target**: The `prepareMeal` action is marked with `@AchievesGoal` to indicate it produces the final output.
+3. **Type-driven dependencies**: `prepareMeal` requires `Cook` and `Order`, which guides the supervisor's orchestration.
+
+====== SupervisorInvocation vs @Agent with planner = SUPERVISOR
+
+[cols="1,2,2",options="header"]
+|===
+|Aspect |SupervisorInvocation |@Agent(planner = SUPERVISOR)
+
+|*Declaration*
+|Fluent API, no class annotation
+|Annotated agent class
+
+|*Action source*
+|`@EmbabelComponent` or multiple components
+|Single `@Agent` class
+
+|*Best for*
+|Quick prototypes, simple workflows
+|Formalized, reusable agents
+
+|*Goal specification*
+|`.returning(Class)` fluent method
+|`@AchievesGoal` on action
+
+|*Scope*
+|Explicit via `AgentScopeBuilder`
+|Implicit from agent class
+|===
+
+====== Comparison with AgenticTool
+
+Both `SupervisorInvocation` and <<reference.tools__agentic-tools,AgenticTool>> provide LLM-orchestrated composition, but at different levels:
+
+[cols="1,2,2",options="header"]
+|===
+|Aspect |AgenticTool |SupervisorInvocation
+
+|*Level*
+|Tool (can be used within actions)
+|Invocation (runs a complete workflow)
+
+|*Sub-components*
+|Other `Tool` instances
+|`@Action` methods from `@EmbabelComponent`
+
+|*Output*
+|`Tool.Result` (text, artifact, or error)
+|Typed goal object (e.g., `Meal`)
+
+|*State management*
+|Minimal (LLM conversation only)
+|Full blackboard with typed artifacts
+
+|*Type awareness*
+|Tools have names and descriptions
+|Actions have typed inputs/outputs with schemas
+
+|*Currying*
+|None
+|Inputs on blackboard are curried out
+
+|*Use case*
+|Mini-orchestration within an action
+|Complete multi-step workflow with typed results
+|===
+
+Use `AgenticTool` when you need a tool that internally orchestrates other tools.
+Use `SupervisorInvocation` when you need a complete workflow that produces a typed result with full blackboard state management.
+
+
+[graphviz, embabel_planning_system.dot, png]
+----
+include::../diagrams/architecture/embabel_planning_system.dot[]
+----

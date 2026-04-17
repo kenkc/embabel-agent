@@ -1,0 +1,151 @@
+digraph AgenticToolHierarchy {
+    // Graph settings
+    rankdir=TB;
+    compound=true;
+    fontname="Arial";
+    label="AgenticTool Hierarchy & Tool Management Strategies";
+    labelloc=t;
+    fontsize=16;
+    nodesep=0.6;
+    ranksep=0.8;
+
+    // Node styling
+    node [shape=box, style="filled,rounded", fontname="Arial", margin="0.2,0.15", fontsize=11];
+    edge [fontname="Arial", fontsize=10];
+
+    // ---- Base interfaces ----
+    subgraph cluster_interfaces {
+        label="Core Interfaces";
+        style="dashed,rounded";
+        color=grey60;
+        fontname="Arial";
+        fontsize=12;
+
+        Tool [fillcolor=lightblue, label="Tool\n(framework-agnostic\ntool contract)"];
+        ToolChaining [fillcolor=lightblue, label="ToolChaining<THIS>\n(fluent domain tool\nconfiguration)"];
+        AgenticToolIface [fillcolor="#B0D4F1", label="AgenticTool<THIS>\n(LLM-orchestrated\nsub-tool execution)", penwidth=2];
+
+        Tool -> AgenticToolIface [label="extends", style=dashed, arrowhead=empty];
+        ToolChaining -> AgenticToolIface [label="extends", style=dashed, arrowhead=empty];
+    }
+
+    // ---- Three concrete implementations ----
+
+    // SimpleAgenticTool
+    subgraph cluster_simple {
+        label="SimpleAgenticTool";
+        style="filled,rounded";
+        fillcolor="#E8F5E9";
+        color="#4CAF50";
+        fontname="Arial";
+        fontsize=12;
+
+        SimpleAgenticTool [fillcolor="#A5D6A7", label="SimpleAgenticTool\n\nAll tools available\nimmediately.\nSimplest model.", penwidth=2];
+
+        SimpleToolsBox [fillcolor="#C8E6C9", label="Tools A, B, C, D\n(all available\nfrom iteration 1)", shape=note];
+    }
+
+    // PlaybookTool
+    subgraph cluster_playbook {
+        label="PlaybookTool";
+        style="filled,rounded";
+        fillcolor="#FFF3E0";
+        color="#FF9800";
+        fontname="Arial";
+        fontsize=12;
+
+        PlaybookTool [fillcolor="#FFCC80", label="PlaybookTool\n\nProgressive unlock:\ntools gated by\nconditions.", penwidth=2];
+
+        subgraph cluster_playbook_tools {
+            label="Tool Availability";
+            style="rounded";
+            color="#FFB74D";
+            fillcolor="#FFF8E1";
+
+            UnlockedTools [fillcolor="#C8E6C9", label="Unlocked Tools\n(always available)", shape=note];
+            LockedTools [fillcolor="#FFCDD2", label="Locked Tools\n(conditional)", shape=note];
+        }
+
+        subgraph cluster_conditions {
+            label="UnlockConditions";
+            style="rounded";
+            color="#FFB74D";
+            fillcolor="#FFF8E1";
+
+            AfterTools [fillcolor="#FFE0B2", label="AfterTools\n(after specific\ntool called)"];
+            OnArtifact [fillcolor="#FFE0B2", label="OnArtifact\n(when artifact\nproduced)"];
+            WhenPredicate [fillcolor="#FFE0B2", label="WhenPredicate\n(custom logic)"];
+            AllOfAnyOf [fillcolor="#FFE0B2", label="AllOf / AnyOf\n(combinators)"];
+        }
+    }
+
+    // StateMachineTool
+    subgraph cluster_statemachine {
+        label="StateMachineTool<S : Enum>";
+        style="filled,rounded";
+        fillcolor="#E8EAF6";
+        color="#3F51B5";
+        fontname="Arial";
+        fontsize=12;
+
+        StateMachineTool [fillcolor="#9FA8DA", label="StateMachineTool<S>\n\nState-driven:\ntools available per\ncurrent state.", penwidth=2];
+
+        subgraph cluster_states {
+            label="States & Transitions";
+            style="rounded";
+            color="#7986CB";
+            fillcolor="#E8EAF6";
+
+            StateA [fillcolor="#C5CAE9", label="State A\nTools: X, Y"];
+            StateB [fillcolor="#C5CAE9", label="State B\nTools: Y, Z"];
+            StateC [fillcolor="#C5CAE9", label="State C\nTools: Z, W"];
+            GlobalTools [fillcolor="#B2DFDB", label="Global Tools\n(all states)"];
+
+            StateA -> StateB [label="transition\non tool call", color="#3F51B5"];
+            StateB -> StateC [label="transition\non tool call", color="#3F51B5"];
+        }
+    }
+
+    // ---- Inheritance edges ----
+    AgenticToolIface -> SimpleAgenticTool [label="implements", arrowhead=empty, style=bold];
+    AgenticToolIface -> PlaybookTool [label="implements", arrowhead=empty, style=bold];
+    AgenticToolIface -> StateMachineTool [label="implements", arrowhead=empty, style=bold];
+
+    // ---- Internal structure edges ----
+    SimpleAgenticTool -> SimpleToolsBox [style=dashed, arrowhead=none];
+
+    PlaybookTool -> UnlockedTools [style=dashed, arrowhead=none];
+    PlaybookTool -> LockedTools [style=dashed, arrowhead=none];
+    LockedTools -> AfterTools [style=dotted, arrowhead=vee, label="gated by"];
+    LockedTools -> OnArtifact [style=dotted, arrowhead=vee];
+    LockedTools -> WhenPredicate [style=dotted, arrowhead=vee];
+    LockedTools -> AllOfAnyOf [style=dotted, arrowhead=vee];
+
+    StateMachineTool -> StateA [style=dashed, arrowhead=none];
+    StateMachineTool -> GlobalTools [style=dashed, arrowhead=none];
+
+    // ---- Shared capabilities (ToolChaining / DomainToolSource) ----
+    subgraph cluster_shared {
+        label="Shared Capabilities";
+        style="dashed,rounded";
+        color=grey60;
+        fontname="Arial";
+        fontsize=12;
+
+        DomainToolSource [fillcolor=lavender, label="DomainToolSource\n(discover @LlmTool\nmethods on objects)"];
+        DomainToolChaining [fillcolor=lavender, label="Domain Tool Chaining\n(tools on returned\nobjects become\navailable)"];
+        ArtifactSinking [fillcolor=lavender, label="ArtifactSinkingTool\n(capture artifacts\nfrom tool results)"];
+    }
+
+    SimpleAgenticTool -> DomainToolSource [style=dotted, color=grey50];
+    PlaybookTool -> DomainToolSource [style=dotted, color=grey50];
+    StateMachineTool -> DomainToolSource [style=dotted, color=grey50];
+
+    SimpleAgenticTool -> DomainToolChaining [style=dotted, color=grey50];
+    PlaybookTool -> DomainToolChaining [style=dotted, color=grey50];
+    StateMachineTool -> DomainToolChaining [style=dotted, color=grey50];
+
+    SimpleAgenticTool -> ArtifactSinking [style=dotted, color=grey50];
+    PlaybookTool -> ArtifactSinking [style=dotted, color=grey50];
+    StateMachineTool -> ArtifactSinking [style=dotted, color=grey50];
+}

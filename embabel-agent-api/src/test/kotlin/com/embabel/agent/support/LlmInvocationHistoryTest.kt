@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,8 @@ package com.embabel.agent.support
 import com.embabel.agent.api.common.ToolsStats
 import com.embabel.agent.core.LlmInvocation
 import com.embabel.agent.core.LlmInvocationHistory
-import com.embabel.common.ai.model.Llm
+import com.embabel.agent.core.support.toEmbabelUsage
+import com.embabel.agent.spi.LlmService
 import com.embabel.common.ai.model.PricingModel
 import io.mockk.every
 import io.mockk.mockk
@@ -53,15 +54,15 @@ class LlmInvocationHistoryTest {
     @Test
     fun `one call`() {
         val llmih = LlmInvocationHistoryImpl()
-        val mockLlm = mockk<Llm>()
+        val mockLlm = mockk<LlmService<*>>()
         every { mockLlm.name } returns "Mock LLM"
         every { mockLlm.pricingModel } returns PricingModel.ALL_YOU_CAN_EAT
         val usage = DefaultUsage(100, 200)
         llmih.llmInvocations += LlmInvocation(
-            llm = mockLlm,
+            llmMetadata = mockLlm,
             timestamp = Instant.now(),
             runningTime = Duration.ofMillis(100),
-            usage = usage,
+            usage = usage.toEmbabelUsage(),
         )
         assertEquals(0.0, llmih.cost(), "No cost as it's an all you can eat model")
         assertEquals(setOf(mockLlm), llmih.modelsUsed().toSet(), "Model used")

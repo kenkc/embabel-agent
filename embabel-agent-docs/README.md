@@ -19,12 +19,24 @@ Then run:
 ```bash
 mvn generate-resources -Dasciidoctor.attributes='toc!'
 
-docling  ./target/generated-docs/index.pdf --from pdf --to md --output ./ --image-export-mode placeholder
+docling  ./target/generated-docs/index.html --from html --to md --output ./target/generated-docs --image-export-mode placeholder
 ```
+
+This will create `index.md` in the `target/generated-docs` folder.
+
+To get a serialized version of the document in `DoclingDocument` format, use this alternative docling command:
+
+```bash
+docling  ./target/generated-docs/index.md --from md --to json --output ./target --image-export-mode placeholder
+```
+
+You can also build the `DoclingDocument` from the PDF, but it will contain
+a _lot_ of low value PDF layout information.
 
 ## Links
 
-By default when you create links in AsciiDoc they are all based on fragment identifiers, eg mysite/page#foo.However, we have a lot of content on different topics and by default the TOC is overwhelming. The Hub site groups topics like this:
+By default when you create links in AsciiDoc they are all based on fragment identifiers, eg mysite/page#foo.However, we
+have a lot of content on different topics and by default the TOC is overwhelming. The Hub site groups topics like this:
 
 ```aiignore
 Welcome

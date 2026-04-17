@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,10 +24,10 @@ import io.a2a.spec.JSONRPCError
 import io.a2a.spec.JSONRPCErrorResponse
 import io.a2a.spec.SendMessageRequest
 import io.a2a.spec.SendStreamingMessageRequest
+import io.a2a.spec.TaskResubscriptionRequest
 import jakarta.servlet.ServletRequest
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.event.ApplicationReadyEvent
-import org.springframework.context.annotation.Profile
 import org.springframework.context.event.EventListener
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
@@ -44,7 +44,6 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * a distinct endpoint with its own agent card.
  */
 @Component
-@Profile("a2a")
 class A2AEndpointRegistrar(
     private val agentCardHandlers: List<AgentCardHandler>,
     private val requestMappingHandlerMapping: RequestMappingHandlerMapping,
@@ -120,21 +119,64 @@ private class AgentCardHandlerWebFacade(
     @ResponseBody
     fun handleJsonRpc(@RequestBody requestMap: Map<String, Any>): Any {
         return try {
-            logger.debug("Received JSON-RPC request: {}", requestMap)
             val method = requestMap["method"] as? String
+            val requestId = requestMap["id"]
+            logger.info("Received JSON-RPC request: method='{}', id='{}', params keys={}",
+                method, requestId, (requestMap["params"] as? Map<*, *>)?.keys)
+            logger.debug("Full JSON-RPC request: {}", requestMap)
 
             return when (method) {
                 SendStreamingMessageRequest.METHOD -> {
+                    logger.debug("Processing streaming request for method: {}", method)
                     // For streaming requests, return the SseEmitter directly without wrapping
-                    val request = objectMapper.convertValue(requestMap, SendStreamingMessageRequest::class.java)
-                    agentCardHandler.handleJsonRpcStream(request)
+                    try {
+                        val request = objectMapper.convertValue(requestMap, SendStreamingMessageRequest::class.java)
+                        logger.debug("Successfully deserialized SendStreamingMessageRequest")
+                        agentCardHandler.handleJsonRpcStream(request)
+                    } catch (e: Exception) {
+                        logger.error("Failed to deserialize or handle streaming request", e)
+                        throw e
+                    }
+                }
+                TaskResubscriptionRequest.METHOD -> {
+                    logger.debug("Processing resubscribe request for method: {}", method)
+                    // For resubscribe requests, handle separately
+                    // Cast to AutonomyA2ARequestHandler to access custom streaming method
+                    if (agentCardHandler is AutonomyA2ARequestHandler) {
+                        agentCardHandler.handleCustomStreamingRequest(method, requestMap, objectMapper)
+                    } else {
+                        throw UnsupportedOperationException("Method ${method} is not supported by this handler")
+                    }
                 }
                 else -> {
+                    logger.debug("Processing non-streaming request for method: {}", method)
                     val request = when (method) {
-                        SendMessageRequest.METHOD -> objectMapper.convertValue(requestMap, SendMessageRequest::class.java)
-                        GetTaskRequest.METHOD -> objectMapper.convertValue(requestMap, GetTaskRequest::class.java)
-                        CancelTaskRequest.METHOD -> objectMapper.convertValue(requestMap, CancelTaskRequest::class.java)
+                        SendMessageRequest.METHOD -> {
+                            try {
+                                objectMapper.convertValue(requestMap, SendMessageRequest::class.java)
+                            } catch (e: Exception) {
+                                logger.error("Failed to deserialize SendMessageRequest", e)
+                                throw e
+                            }
+                        }
+                        GetTaskRequest.METHOD -> {
+                            try {
+                                objectMapper.convertValue(requestMap, GetTaskRequest::class.java)
+                            } catch (e: Exception) {
+                                logger.error("Failed to deserialize GetTaskRequest", e)
+                                throw e
+                            }
+                        }
+                        CancelTaskRequest.METHOD -> {
+                            try {
+                                objectMapper.convertValue(requestMap, CancelTaskRequest::class.java)
+                            } catch (e: Exception) {
+                                logger.error("Failed to deserialize CancelTaskRequest", e)
+                                throw e
+                            }
+                        }
                         else -> {
+                            logger.warn("Unsupported method: {}", method)
                             throw UnsupportedOperationException("Method ${method} is not supported")
                         }
                     }
@@ -145,7 +187,10 @@ private class AgentCardHandlerWebFacade(
                 }
             }
         } catch (e: Exception) {
-            val requestId = requestMap["id"]
+            val requestId = requestMap.getOrDefault("id", "unknown")
+            val method = requestMap.getOrDefault("method", "unknown")
+            logger.error("Error handling JSON-RPC request: method='{}', id='{}', error={}",
+                method, requestId, e.message, e)
             ResponseEntity.status(500)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(

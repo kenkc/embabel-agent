@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,14 @@
  */
 package com.embabel.agent.api.annotation
 
+import com.embabel.agent.api.common.PlannerType
 import com.embabel.agent.core.IoBinding
+import com.embabel.agent.core.ActionRetryPolicy
 import com.embabel.common.core.types.Semver.Companion.DEFAULT_VERSION
 import com.embabel.common.core.types.ZeroToOne
 import org.springframework.core.annotation.AliasFor
 import org.springframework.stereotype.Component
+import kotlin.reflect.KClass
 
 
 /**
@@ -35,22 +38,9 @@ import org.springframework.stereotype.Component
     AnnotationTarget.CLASS,
 )
 @Component
-annotation class AgentCapabilities(
+annotation class EmbabelComponent(
     val scan: Boolean = true,
 )
-
-/**
- * Specifies the type of planner that an agent uses.
- */
-enum class Planner {
-
-    /**
-     * Goal Oriented Action Planning.
-     * This is the default planner.
-     * It uses goals, actions and conditions to plan actions.
-     */
-    GOAP,
-}
 
 /**
  * Indicates that this class is an agent.
@@ -68,6 +58,17 @@ enum class Planner {
  * to be turned into a Spring bean in case of an autodetected component. Use only if there's the likelihood of
  * conflict with the default bean name.
  * @param opaque Whether to hide the agent's actions and conditions
+ * @param actionRetryPolicy {@link com.embabel.agent.core.ActionRetryPolicy} for how to manage retries per action.
+ * Use actionRetryPolicyExpression to specify specific properties. You can override this per action in the {@link Action} annotation.
+ * @param actionRetryPolicyExpression An expression pointing to a set of properties for how to manage retries per action
+ * overriding these (these are the defaults if you do not specify):
+ *   max-attempts: int = 5
+ *   backoff-millis: long = 10000
+ *   backoff-multiplier: double = 5.0
+ *   backoff-maxInterval: long = 60000
+ *   idempotent: boolean = false
+ * example: ${agent.action-retry.default}
+ * You can override this per action in the {@link Action} annotation.
  */
 @Retention(AnnotationRetention.RUNTIME)
 @Target(
@@ -79,11 +80,13 @@ annotation class Agent(
     val provider: String = "",
     val description: String,
     val version: String = DEFAULT_VERSION,
-    val planner: Planner = Planner.GOAP,
+    val planner: PlannerType = PlannerType.GOAP,
     val scan: Boolean = true,
     @get:AliasFor(annotation = Component::class, attribute = "value")
     val beanName: String = "",
     val opaque: Boolean = false,
+    val actionRetryPolicy: ActionRetryPolicy = ActionRetryPolicy.DEFAULT,
+    val actionRetryPolicyExpression: String = "",
 )
 
 /**
@@ -104,6 +107,37 @@ annotation class Condition(
     val cost: ZeroToOne = 0.0,
 )
 
+/**
+ * Annotates a method that computes the dynamic cost or value of an action at planning time.
+ * Similar to @Condition, this method can take domain object parameters from the blackboard.
+ * **Unlike @Condition, all domain object parameters must be nullable.**
+ * If a parameter is not available on the blackboard, null will be passed.
+ *
+ * The method can also take a `Blackboard` parameter for direct access to all available objects.
+ *
+ * The method must return a Double between 0.0 and 1.0.
+ *
+ * Example:
+ * ```java
+ * @Cost(name = "processingCost")
+ * public double computeProcessingCost(@Nullable LargeDataSet largeData) {
+ *     return largeData != null ? 0.9 : 0.1;
+ * }
+ *
+ * @Action(costMethod = "processingCost")
+ * public DataOutput processData(DataInput input) { ... }
+ * ```
+ *
+ * @param name Name of the cost method. Referenced by @Action.costMethod or @Action.valueMethod.
+ * If not provided, the name will be the method name.
+ */
+@Target(AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.RUNTIME)
+@MustBeDocumented
+annotation class Cost(
+    val name: String = "",
+)
+
 @Retention(AnnotationRetention.RUNTIME)
 @MustBeDocumented
 annotation class ToolGroup(
@@ -122,13 +156,41 @@ annotation class ToolGroup(
  * used for documentation purposes, having the advantage over comments
  * that it can appear in logs. Description defaults to name
  * @param pre Preconditions for the action
+ * @param post Postconditions for the action
+ * @param canRerun can we rerun this action?
+ * If false, the action will not be rerun if it has already run in the current process
+ * @param readOnly Does this action have no external side effects?
+ * Read-only actions only analyze data and produce derived objects without modifying
+ * external systems (APIs, databases, files, etc.). Used for learning/catchup modes
+ * where we want to ingest and understand data without triggering mutations.
+ * @param clearBlackboard If true, all previous state will be cleared from the blackboard,
+ * leaving only the outputs of this action.
  * @param outputBinding Output binding for the action.
- * Only required for a custom binding.
- * @param cost Cost of executing the action
- * @param value Value of performing the action
- * @param toolGroups Tool groups that this action requires. These are well known tools from the server.
- * @param toolGroupRequirements Tool groups required, with explicit metadata such as QoS requirements.
+ * Only required for a custom binding: a specific variable name for the returned value.
+ * @param cost Static cost of executing the action. Ignored if [costMethod] is specified.
+ * @param value Static value of performing the action. Ignored if [valueMethod] is specified.
+ * @param costMethod Name of a @Cost method to compute dynamic cost at planning time.
+ * When specified, overrides the static [cost] field.
+ * @param valueMethod Name of a @Cost method to compute dynamic value at planning time.
+ * When specified, overrides the static [value] field.
  * @Tool methods on the @Agentic class are automatically added.
+ * @param trigger The type that must be the last result on the blackboard for this action to fire.
+ * This enables reactive behavior where an action only fires when a specific type
+ * is freshly added, even when multiple parameters of various types are available.
+ * Defaults to Unit::class (no trigger). A trigger is an **additional** precondition: it
+ * must be satisfied in addition to any preconditions listed in [pre] and the action method's input parameters.
+ * @param actionRetryPolicy {@link com.embabel.agent.core.ActionRetryPolicy} for how to manage retries for this action.
+ * Use actionRetryPolicyExpression
+ * to specify specific properties.
+ * @param actionRetryPolicyExpression An expression pointing to a set of properties for how to manage retries for this
+ * action overriding these (these are the defaults if you do not specify):
+ *   max-attempts: int = 5
+ *   backoff-millis: long = 10000
+ *   backoff-multiplier: double = 5.0
+ *   backoff-maxInterval: long = 60000
+ *   idempotent: boolean = false
+ * example: ${agent.action-retry.default}
+ * These take precedence over specifying the default in the Agent annotation.
  */
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.RUNTIME)
@@ -138,12 +200,28 @@ annotation class Action(
     val pre: Array<String> = [],
     val post: Array<String> = [],
     val canRerun: Boolean = false,
+    val readOnly: Boolean = false,
+    val clearBlackboard: Boolean = false,
     val outputBinding: String = IoBinding.DEFAULT_BINDING,
     val cost: ZeroToOne = 0.0,
     val value: ZeroToOne = 0.0,
-    val toolGroups: Array<String> = [],
-    val toolGroupRequirements: Array<ToolGroup> = [],
+    val costMethod: String = "",
+    val valueMethod: String = "",
+    val trigger: KClass<*> = Unit::class,
+    val actionRetryPolicy: ActionRetryPolicy = ActionRetryPolicy.DEFAULT,
+    val actionRetryPolicyExpression: String = "",
 )
+
+/**
+ * Marks a class representing a state within a flow.
+ * States do not trigger subflows but hold a subset of actions.
+ * Returning a State from an action indicates a transition to that state
+ * and creates the effects of the state's ultimate goals.
+ */
+@Target(AnnotationTarget.CLASS)
+@Retention(AnnotationRetention.RUNTIME)
+@MustBeDocumented
+annotation class State
 
 
 /**
@@ -159,6 +237,6 @@ annotation class Action(
 @Target(AnnotationTarget.VALUE_PARAMETER)
 @Retention(AnnotationRetention.RUNTIME)
 @MustBeDocumented
-annotation class RequireNameMatch (
-    val value: String = ""
+annotation class RequireNameMatch(
+    val value: String = "",
 )

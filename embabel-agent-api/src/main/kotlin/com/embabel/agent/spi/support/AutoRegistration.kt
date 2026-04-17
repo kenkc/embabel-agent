@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -122,8 +122,8 @@ internal class DelegatingAgentScanningBeanPostProcessor(
     }
 
     private fun processPendingBeans() {
-        var beanInfo: BeanProcessingInfo
-        while ((pendingBeans.poll().also { beanInfo = it }) != null) {
+        while (true) {
+            val beanInfo = pendingBeans.poll() ?: break
             // Apply the processing that was deferred
             val processedBean = processBean(beanInfo.bean, beanInfo.beanName)
         }

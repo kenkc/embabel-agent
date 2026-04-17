@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,12 @@
 package com.embabel.agent.spi.support
 
 import com.embabel.agent.api.common.InteractionId
-import com.embabel.agent.common.RetryProperties
-import com.embabel.agent.spi.*
+import com.embabel.agent.api.common.ranking.Ranker
+import com.embabel.agent.api.common.ranking.Ranking
+import com.embabel.agent.api.common.ranking.Rankings
+import com.embabel.agent.core.internal.LlmOperations
+import com.embabel.agent.core.support.LlmInteraction
+import com.embabel.agent.spi.common.RetryProperties
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.model.ModelSelectionCriteria
 import com.embabel.common.ai.model.ModelSelectionCriteria.Companion.byName
@@ -125,7 +129,6 @@ internal class LlmRanker(
                     thingNames.map { "'$it'" }
                 }, raw=$rankingResponse"
             )
-            return Rankings(emptyList())
         }
 
         return Rankings(

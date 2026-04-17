@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,12 @@
  */
 package com.embabel.agent.api.common.workflow.loop
 
+import com.embabel.agent.api.common.InputActionContext
 import com.embabel.agent.api.common.OperationContext
-import com.embabel.agent.api.common.TransformationActionContext
-import com.embabel.agent.api.common.support.SupplierAction
 import com.embabel.agent.api.common.support.TransformationAction
-import com.embabel.agent.api.dsl.AgentScopeBuilder
-import com.embabel.agent.core.Action
-import com.embabel.agent.core.ComputedBooleanCondition
-import com.embabel.agent.core.Goal
-import com.embabel.agent.core.last
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
+import com.embabel.agent.api.event.AgenticEventListener
+import com.embabel.agent.core.*
 import com.embabel.common.core.MobyNameGenerator
 import com.embabel.common.core.types.Timed
 import com.embabel.common.core.types.Timestamped
@@ -43,7 +40,8 @@ data class Attempt<RESULT : Any, FEEDBACK : Feedback>(
 /**
  * Mutable object. We only bind this once
  */
-data class AttemptHistory<RESULT : Any, FEEDBACK : Feedback>(
+data class AttemptHistory<INPUT, RESULT : Any, FEEDBACK : Feedback>(
+    val input: INPUT,
     private val _attempts: MutableList<Attempt<RESULT, FEEDBACK>> = mutableListOf(),
     private var lastResult: RESULT? = null,
     override val timestamp: Instant = Instant.now(),
@@ -97,51 +95,69 @@ data class RepeatUntilAcceptable(
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    inline fun <reified RESULT : Any, reified FEEDBACK : Feedback> build(
-        noinline task: (TransformationActionContext<AttemptHistory<RESULT, FEEDBACK>, RESULT>) -> RESULT,
-        noinline evaluator: (TransformationActionContext<AttemptHistory<RESULT, FEEDBACK>, FEEDBACK>) -> FEEDBACK,
-        noinline acceptanceCriteria: (FEEDBACK) -> Boolean = { it.score >= scoreThreshold },
-    ): AgentScopeBuilder<RESULT> =
+    inline fun <reified INPUT, reified RESULT : Any, reified FEEDBACK : Feedback> build(
+        noinline task: (RepeatUntilAcceptableActionContext<INPUT, RESULT, FEEDBACK>) -> RESULT,
+        noinline evaluator: (EvaluationActionContext<INPUT, RESULT, FEEDBACK>) -> FEEDBACK,
+        noinline acceptanceCriteria: (AcceptanceActionContext<INPUT, RESULT, FEEDBACK>) -> Boolean = { it.feedback.score >= scoreThreshold },
+        inputClass: Class<INPUT>,
+    ): TypedAgentScopeBuilder<RESULT> =
         build(
             task = task,
             evaluator = evaluator,
             acceptanceCriteria = acceptanceCriteria,
             resultClass = RESULT::class.java,
             feedbackClass = FEEDBACK::class.java,
+            inputClass = inputClass,
         )
 
 
-    fun <RESULT : Any, FEEDBACK : Feedback> build(
-        task: (TransformationActionContext<AttemptHistory<RESULT, FEEDBACK>, RESULT>) -> RESULT,
-        evaluator: (TransformationActionContext<AttemptHistory<RESULT, FEEDBACK>, FEEDBACK>) -> FEEDBACK,
-        acceptanceCriteria: (FEEDBACK) -> Boolean,
+    fun <INPUT, RESULT : Any, FEEDBACK : Feedback> build(
+        task: (RepeatUntilAcceptableActionContext<INPUT, RESULT, FEEDBACK>) -> RESULT,
+        evaluator: (EvaluationActionContext<INPUT, RESULT, FEEDBACK>) -> FEEDBACK,
+        acceptanceCriteria: (AcceptanceActionContext<INPUT, RESULT, FEEDBACK>) -> Boolean,
         resultClass: Class<RESULT>,
         feedbackClass: Class<FEEDBACK>,
-    ): AgentScopeBuilder<RESULT> {
+        inputClass: Class<out INPUT>,
+    ): TypedAgentScopeBuilder<RESULT> {
 
-        fun findOrBindAttemptHistory(context: OperationContext): AttemptHistory<RESULT, FEEDBACK> {
-            return context.last<AttemptHistory<RESULT, FEEDBACK>>()
+        fun findOrBindAttemptHistory(
+            context: OperationContext,
+            input: INPUT,
+        ): AttemptHistory<INPUT, RESULT, FEEDBACK> {
+            return context.last<AttemptHistory<INPUT, RESULT, FEEDBACK>>()
                 ?: run {
-                    val ah = AttemptHistory<RESULT, FEEDBACK>()
+                    val ah = AttemptHistory<INPUT, RESULT, FEEDBACK>(input = input)
                     context += ah
                     logger.info("Bound new AttemptHistory")
                     ah
                 }
         }
 
-        val taskAction = SupplierAction(
+        val taskAction = TransformationAction(
             name = "=>${resultClass.name}",
             description = "Generate $resultClass",
             post = listOf(RESULT_WAS_BOUND_LAST_CONDITION),
-            cost = 0.0,
-            value = 0.0,
+            cost = { 0.0 },
+            value = { 0.0 },
+            pre = listOfNotNull(inputClass)
+                .filterNot { it == Unit::class.java }
+                .map { com.embabel.agent.core.IoBinding(type = it).value },
             canRerun = true,
+            inputClass = inputClass,
             outputClass = resultClass,
             toolGroups = emptySet(),
         ) { context ->
-            val attemptHistory = findOrBindAttemptHistory(context)
-            val tac = (context as TransformationActionContext<AttemptHistory<RESULT, FEEDBACK>, RESULT>).copy(
-                input = attemptHistory,
+            @Suppress("UNCHECKED_CAST")
+            val input = context.input as INPUT
+            val attemptHistory = findOrBindAttemptHistory(context, input)
+
+            val tac = RepeatUntilAcceptableActionContext(
+                input = input,
+                processContext = context.processContext,
+                action = context.action,
+                inputClass = inputClass as Class<INPUT>,
+                outputClass = resultClass,
+                attemptHistory = attemptHistory,
             )
             val result = task.invoke(tac)
             // Allow the evaluator to access the last result
@@ -159,16 +175,25 @@ data class RepeatUntilAcceptable(
             description = "Evaluate $resultClass to $feedbackClass",
             pre = listOf(RESULT_WAS_BOUND_LAST_CONDITION),
             post = listOf(ACCEPTABLE_CONDITION),
-            cost = 0.0,
-            value = 0.0,
+            cost = { 0.0 },
+            value = { 0.0 },
             canRerun = true,
             inputClass = resultClass,
             outputClass = feedbackClass,
             toolGroups = emptySet(),
         ) { context ->
-            val attemptHistory = findOrBindAttemptHistory(context)
-            val tac = (context as TransformationActionContext<AttemptHistory<RESULT, FEEDBACK>, FEEDBACK>).copy(
-                input = attemptHistory,
+            // AttemptHistory was already bound by taskAction, so we retrieve it
+            val attemptHistory = context.last<AttemptHistory<INPUT, RESULT, FEEDBACK>>()
+                ?: error("AttemptHistory should have been bound by task action")
+
+            @Suppress("UNCHECKED_CAST")
+            val tac = EvaluationActionContext(
+                input = attemptHistory.input,
+                processContext = context.processContext,
+                action = context.action,
+                inputClass = inputClass as Class<INPUT>,
+                outputClass = feedbackClass,
+                attemptHistory = attemptHistory,
             )
             val feedback = evaluator(tac)
             val bestSoFar = attemptHistory.bestSoFar()
@@ -201,8 +226,8 @@ data class RepeatUntilAcceptable(
 
         val acceptableCondition = ComputedBooleanCondition(
             name = ACCEPTABLE_CONDITION,
-            evaluator = { context, _ ->
-                val attemptHistory = context.last<AttemptHistory<RESULT, FEEDBACK>>()
+            evaluator = { context, action ->
+                val attemptHistory = context.last<AttemptHistory<INPUT, RESULT, FEEDBACK>>()
                 if (attemptHistory?.lastAttempt() == null) {
                     false
                 } else if (attemptHistory.attempts().size >= maxIterations) {
@@ -214,7 +239,12 @@ data class RepeatUntilAcceptable(
                     true
                 } else {
                     val lastFeedback = attemptHistory.lastAttempt()!!.feedback
-                    val isAcceptable = acceptanceCriteria(lastFeedback)
+                    val acceptanceContext = AcceptanceActionContext(
+                        input = attemptHistory.input,
+                        attemptHistory = attemptHistory,
+                        feedback = lastFeedback,
+                    )
+                    val isAcceptable = acceptanceCriteria(acceptanceContext)
                     logger.info(
                         "Condition '{}', iterations={}: Feedback acceptable={}: {}",
                         ACCEPTABLE_CONDITION,
@@ -231,8 +261,8 @@ data class RepeatUntilAcceptable(
             name = "consolidate-${resultClass.name}-${feedbackClass.name}",
             description = "Consolidate results and feedback",
             pre = listOf(ACCEPTABLE_CONDITION),
-            cost = 0.0,
-            value = 0.0,
+            cost = { 0.0 },
+            value = { 0.0 },
             toolGroups = emptySet(),
             inputClass = AttemptHistory::class.java,
             outputClass = resultClass,
@@ -254,7 +284,7 @@ data class RepeatUntilAcceptable(
         )
         logger.info("Created goal: {}", resultGoal.infoString(verbose = true, indent = 2))
 
-        return AgentScopeBuilder(
+        return TypedAgentScopeBuilder(
             name = MobyNameGenerator.generateName(),
             actions = listOf(
                 taskAction,
@@ -272,4 +302,89 @@ data class RepeatUntilAcceptable(
         private val RESULT_WAS_BOUND_LAST_CONDITION = "${RepeatUntilAcceptable::class.simpleName}_resultWasBoundLast"
     }
 
+}
+
+abstract class RepeatUntilAcceptableContext<INPUT, RESULT : Any, FEEDBACK : Feedback>(
+    override val input: INPUT,
+    override val processContext: ProcessContext,
+    override val action: Action,
+    val inputClass: Class<INPUT>,
+    val outputClass: Class<*>,
+    val attemptHistory: AttemptHistory<INPUT, RESULT, FEEDBACK>,
+) : InputActionContext<INPUT?>, Blackboard by processContext.agentProcess,
+    AgenticEventListener by processContext {
+
+    /**
+     * Get the last attempt if available.
+     */
+    fun lastAttempt(): Attempt<RESULT, FEEDBACK>? = attemptHistory.lastAttempt()
+
+    /**
+     * Convenience method to get result from last attempt or return default
+     * Easy to embed in prompts
+     */
+    fun lastAttemptOr(defaultValue: String): String {
+        return lastAttempt()?.result?.toString() ?: defaultValue
+    }
+
+    /**
+     * Convenience method to get feedback from last attempt or return default
+     */
+    fun lastFeedbackOr(defaultValue: String): String {
+        return lastAttempt()?.feedback?.toString() ?: defaultValue
+    }
+
+    override val toolGroups: Set<ToolGroupRequirement>
+        get() = action.toolGroups
+
+    override val operation = action
+
+}
+
+open class RepeatUntilAcceptableActionContext<INPUT, RESULT : Any, FEEDBACK : Feedback>(
+    input: INPUT,
+    processContext: ProcessContext,
+    action: Action,
+    inputClass: Class<INPUT>,
+    outputClass: Class<*>,
+    attemptHistory: AttemptHistory<INPUT, RESULT, FEEDBACK>,
+) : RepeatUntilAcceptableContext<INPUT, RESULT, FEEDBACK>(
+    input = input,
+    processContext = processContext,
+    action = action,
+    inputClass = inputClass,
+    outputClass = outputClass,
+    attemptHistory = attemptHistory,
+)
+
+
+open class EvaluationActionContext<INPUT, RESULT : Any, FEEDBACK : Feedback>(
+    input: INPUT,
+    processContext: ProcessContext,
+    action: Action,
+    inputClass: Class<INPUT>,
+    outputClass: Class<*>,
+    attemptHistory: AttemptHistory<INPUT, RESULT, FEEDBACK>,
+) : RepeatUntilAcceptableContext<INPUT, RESULT, FEEDBACK>(
+    input = input,
+    processContext = processContext,
+    action = action,
+    inputClass = inputClass,
+    outputClass = outputClass,
+    attemptHistory = attemptHistory,
+) {
+    val resultToEvaluate: RESULT = attemptHistory.resultToEvaluate() ?: error("No result available in AttemptHistory")
+
+}
+
+
+data class AcceptanceActionContext<INPUT, RESULT : Any, FEEDBACK : Feedback>(
+    val input: INPUT,
+    val attemptHistory: AttemptHistory<INPUT, RESULT, FEEDBACK>,
+    val feedback: FEEDBACK,
+) {
+    /**
+     * Get the last attempt if available.
+     */
+    fun lastAttempt(): Attempt<RESULT, FEEDBACK>? = attemptHistory.lastAttempt()
 }

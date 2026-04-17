@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,32 +15,15 @@
  */
 package com.embabel.agent.a2a.server
 
-import com.embabel.agent.api.annotation.support.AgentMetadataReader
-import com.embabel.agent.core.AgentPlatform
-import com.embabel.agent.a2a.server.config.FakeAiConfiguration
-import com.embabel.agent.a2a.server.config.FakeRankerConfiguration
 import com.embabel.agent.a2a.example.simple.horoscope.TestHoroscopeService
 import com.embabel.agent.a2a.example.simple.horoscope.kotlin.TestStarNewsFinder
+import com.embabel.agent.a2a.server.config.FakeAiConfiguration
+import com.embabel.agent.a2a.server.config.FakeRankerConfiguration
+import com.embabel.agent.api.annotation.support.AgentMetadataReader
+import com.embabel.agent.core.AgentPlatform
 import com.embabel.common.core.types.Semver.Companion.DEFAULT_VERSION
 import com.fasterxml.jackson.databind.ObjectMapper
-import io.a2a.spec.AgentCard
-import io.a2a.spec.CancelTaskResponse
-import io.a2a.spec.GetTaskPushNotificationConfigResponse
-import io.a2a.spec.GetTaskResponse
-import io.a2a.spec.JSONRPCRequest
-import io.a2a.spec.Message
-import io.a2a.spec.MessageSendParams
-import io.a2a.spec.PushNotificationAuthenticationInfo
-import io.a2a.spec.PushNotificationConfig
-import io.a2a.spec.SendMessageRequest
-import io.a2a.spec.SendMessageResponse
-import io.a2a.spec.SetTaskPushNotificationConfigResponse
-import io.a2a.spec.Task
-import io.a2a.spec.TaskIdParams
-import io.a2a.spec.TaskPushNotificationConfig
-import io.a2a.spec.TaskQueryParams
-import io.a2a.spec.TaskState
-import io.a2a.spec.TextPart
+import io.a2a.spec.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Nested
@@ -49,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.ComponentScan
 import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.context.ActiveProfiles
@@ -61,9 +45,10 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 @SpringBootTest
-@ActiveProfiles(value = ["test", "a2a"])
+@ActiveProfiles(value = ["test"])
 @AutoConfigureMockMvc(addFilters = false)
 @EnableAutoConfiguration
+@ComponentScan(basePackages = ["com.embabel.agent.a2a"])
 @Import(
     value = [
         FakeAiConfiguration::class,
@@ -117,7 +102,7 @@ class A2AWebIntegrationTest(
             assertEquals("https://embabel.com", agentCard.provider?.url)
             assertEquals(DEFAULT_VERSION, agentCard.version)
             assertEquals("https://embabel.com/docs", agentCard.documentationUrl)
-            assertEquals(false, agentCard.capabilities.streaming)
+            assertEquals(true, agentCard.capabilities.streaming)
             assertEquals(false, agentCard.capabilities.pushNotifications)
             assertEquals(false, agentCard.capabilities.stateTransitionHistory)
             assertEquals(listOf("application/json", "text/plain"), agentCard.defaultInputModes)
@@ -143,7 +128,7 @@ class A2AWebIntegrationTest(
                 .taskId("task-123")
                 .contextId("ctx-123")
                 .build()
-            val params =  MessageSendParams.Builder().message(message).build()
+            val params = MessageSendParams.Builder().message(message).build()
             val request = SendMessageRequest.Builder()
                 .jsonrpc(JSONRPCRequest.JSONRPC_VERSION)
                 .method(SendMessageRequest.METHOD)
@@ -184,14 +169,41 @@ class A2AWebIntegrationTest(
                 .contextId("ctx-123")
                 .build()
             val params = MessageSendParams.Builder().message(message).build()
+            val request = SendStreamingMessageRequest.Builder()
+                .jsonrpc(JSONRPCRequest.JSONRPC_VERSION)
+                .method(SendStreamingMessageRequest.METHOD)
+                .id("stream-123")
+                .params(params)
+                .build()
 
             // Note: We can't fully test SSE with MockMvc in a standard way
-            // This test just verifies the endpoint doesn't throw an error
-            mockMvc.post("/a2a/message/stream") {
+            // This test just verifies the endpoint accepts the streaming request without error
+            mockMvc.post("/a2a") {
                 contentType = MediaType.APPLICATION_JSON
-                content = objectMapper.writeValueAsString(params)
+                content = objectMapper.writeValueAsString(request)
             }
                 .andExpect {
+                    status().isOk()
+                }
+        }
+
+        @Test
+        fun `should handle tasks resubscribe request`() {
+            val resubscribeRequest = mapOf(
+                "jsonrpc" to "2.0",
+                "id" to "req-456",
+                "method" to "tasks/resubscribe",
+                "params" to mapOf("id" to "task-123")
+            )
+
+            // Note: This will fail if task doesn't exist, which is expected
+            // We're just testing that the endpoint is routed correctly
+            mockMvc.post("/a2a") {
+                contentType = MediaType.APPLICATION_JSON
+                content = objectMapper.writeValueAsString(resubscribeRequest)
+            }
+                .andExpect {
+                    // Should return 200 even if task not found (SSE stream will error)
                     status().isOk()
                 }
         }

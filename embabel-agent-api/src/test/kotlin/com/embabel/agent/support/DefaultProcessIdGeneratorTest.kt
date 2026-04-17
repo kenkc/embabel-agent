@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +18,7 @@ package com.embabel.agent.support
 import com.embabel.agent.core.Agent
 import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.spi.support.DefaultAgentProcessIdGenerator
-import com.embabel.agent.spi.support.DefaultProcessIdGeneratorProperties
-import com.embabel.agent.config.AgentPlatformProperties
-import com.embabel.agent.testing.integration.forProcessIdGenerationTesting
+import com.embabel.agent.test.integration.forProcessIdGenerationTesting
 import com.embabel.common.core.MobyNameGenerator
 import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertTrue

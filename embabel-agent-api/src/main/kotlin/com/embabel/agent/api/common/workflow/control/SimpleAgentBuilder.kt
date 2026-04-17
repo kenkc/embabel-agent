@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +19,10 @@ import com.embabel.agent.api.common.SupplierActionContext
 import com.embabel.agent.api.common.TransformationActionContext
 import com.embabel.agent.api.common.support.SupplierAction
 import com.embabel.agent.api.common.support.TransformationAction
-import com.embabel.agent.api.common.workflow.WorkFlowBuilderConsuming
-import com.embabel.agent.api.common.workflow.WorkFlowBuilderReturning
-import com.embabel.agent.api.common.workflow.WorkFlowBuilderWithInput
 import com.embabel.agent.api.common.workflow.WorkflowBuilder
-import com.embabel.agent.api.dsl.AgentScopeBuilder
+import com.embabel.agent.api.common.workflow.WorkflowBuilderConsuming
+import com.embabel.agent.api.common.workflow.WorkflowBuilderReturning
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
 import com.embabel.agent.core.Goal
 import com.embabel.agent.core.IoBinding
 import com.embabel.agent.core.support.Rerun.hasRunCondition
@@ -34,10 +33,10 @@ import com.embabel.common.core.MobyNameGenerator
  */
 data class SimpleAgentBuilder<RESULT : Any>(
     private val resultClass: Class<RESULT>,
-    private val inputClasses: List<Class<out Any>> = emptyList(),
-) : WorkFlowBuilderConsuming, WorkFlowBuilderWithInput {
+    private val inputClass: Class<out Any>? = null,
+) : WorkflowBuilderConsuming {
 
-    companion object : WorkFlowBuilderReturning {
+    companion object : WorkflowBuilderReturning {
 
         /**
          * Creates a simple agent builder that can be used to build agents with a single action.
@@ -53,16 +52,13 @@ data class SimpleAgentBuilder<RESULT : Any>(
         }
     }
 
-    override fun withInput(inputClass: Class<out Any>): SimpleAgentBuilder<RESULT> {
-        return copy(inputClasses = inputClasses + inputClass)
-    }
-
     override fun <INPUT : Any> consuming(inputClass: Class<INPUT>): SimpleAgentConsumer<INPUT> {
         return SimpleAgentConsumer(inputClass)
     }
 
     /**
-     * Provide a function the agent will perform.
+     * Provide a function the agent will perform to generate
+     * a draft on each iteration
      */
     fun running(
         generator: (SupplierActionContext<RESULT>) -> RESULT,
@@ -73,7 +69,7 @@ data class SimpleAgentBuilder<RESULT : Any>(
     inner class Emitter(
         private val generator: (SupplierActionContext<RESULT>) -> RESULT,
         private val mustRun: Boolean = false,
-    ) : WorkflowBuilder<RESULT>(resultClass, inputClasses) {
+    ) : WorkflowBuilder<RESULT>(resultClass, inputClass) {
 
         /**
          * If this is true, the action must run even if its
@@ -83,14 +79,14 @@ data class SimpleAgentBuilder<RESULT : Any>(
             return Emitter(generator, mustRun = true)
         }
 
-        override fun build(): AgentScopeBuilder<RESULT> {
+        override fun build(): TypedAgentScopeBuilder<RESULT> {
             val action = SupplierAction(
                 name = "Generate ${resultClass.simpleName}",
                 description = "Generates a result of type ${resultClass.simpleName}",
-                cost = 0.0,
-                value = 0.0,
+                cost = { 0.0 },
+                value = { 0.0 },
                 canRerun = true,
-                pre = inputClasses.map { IoBinding(type = it).value },
+                pre = listOfNotNull(inputClass).map { IoBinding(type = it).value },
                 outputClass = resultClass,
                 toolGroups = emptySet(),
             ) { context ->
@@ -111,7 +107,7 @@ data class SimpleAgentBuilder<RESULT : Any>(
                 description = "Goal to generate a result of type ${resultClass.simpleName}",
                 satisfiedBy = resultClass,
             ).withPreconditions(*preconditions.toTypedArray())
-            return AgentScopeBuilder(
+            return TypedAgentScopeBuilder(
                 name = MobyNameGenerator.generateName(),
                 actions = listOf(action),
                 goals = setOf(goal),
@@ -134,14 +130,14 @@ data class SimpleAgentBuilder<RESULT : Any>(
 
         inner class Emitter(
             private val generator: (TransformationActionContext<INPUT, RESULT>) -> RESULT,
-        ) : WorkflowBuilder<RESULT>(resultClass, inputClasses) {
+        ) : WorkflowBuilder<RESULT>(resultClass, inputClass) {
 
-            override fun build(): AgentScopeBuilder<RESULT> {
+            override fun build(): TypedAgentScopeBuilder<RESULT> {
                 val action = TransformationAction(
                     name = "Generate ${resultClass.simpleName}",
                     description = "Generates a result of type ${resultClass.simpleName}",
-                    cost = 0.0,
-                    value = 0.0,
+                    cost = { 0.0 },
+                    value = { 0.0 },
                     canRerun = true,
                     inputClass = inputClass,
                     outputClass = resultClass,
@@ -154,7 +150,7 @@ data class SimpleAgentBuilder<RESULT : Any>(
                     description = "Goal to generate a result of type ${resultClass.simpleName}",
                     satisfiedBy = resultClass,
                 )
-                return AgentScopeBuilder(
+                return TypedAgentScopeBuilder(
                     name = MobyNameGenerator.generateName(),
                     actions = listOf(action),
                     goals = setOf(goal),

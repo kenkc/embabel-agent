@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,36 +15,20 @@
  */
 package com.embabel.agent.autoconfigure.models.bedrock;
 
-import com.embabel.agent.config.models.bedrock.BedrockModels;
-import org.springframework.ai.bedrock.cohere.api.CohereEmbeddingBedrockApi;
-import org.springframework.ai.bedrock.converse.BedrockProxyChatModel;
-import org.springframework.ai.bedrock.titan.api.TitanEmbeddingBedrockApi;
+import com.embabel.agent.config.models.bedrock.BedrockModelsConfig;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
-import org.springframework.context.annotation.ComponentScan;
+import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.context.annotation.Import;
-import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeAsyncClient;
-import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
+/**
+ * Autoconfiguration for AWS Bedrock models in the Embabel Agent system.
+ * <p>
+ * This class serves as a Spring Boot autoconfiguration entry point that:
+ * - Imports the [BedrockModelsConfig] configuration to dynamically register Bedrock model beans
+ */
 @AutoConfiguration
-@ConfigurationPropertiesScan(
-        basePackages = {
-                "com.embabel.agent"
-        }
-)
-@ComponentScan(
-        basePackages = {
-                "com.embabel.agent"
-        }
-)
-@ConditionalOnClass({
-        BedrockProxyChatModel.class,
-        BedrockRuntimeClient.class,
-        BedrockRuntimeAsyncClient.class,
-        TitanEmbeddingBedrockApi.class,
-        CohereEmbeddingBedrockApi.class,
-        BedrockModels.class})
-@Import(BedrockModels.class)
+@AutoConfigureBefore(name = {"com.embabel.agent.autoconfigure.platform.AgentPlatformAutoConfiguration"})
+@Import(BedrockModelsConfig.class)
 public class AgentBedrockAutoConfiguration {
+
 }

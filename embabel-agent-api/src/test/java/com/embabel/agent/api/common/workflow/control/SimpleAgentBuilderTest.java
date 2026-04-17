@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
  */
 package com.embabel.agent.api.common.workflow.control;
 
-import com.embabel.agent.api.common.autonomy.AgentInvocation;
+import com.embabel.agent.api.invocation.AgentInvocation;
 import com.embabel.agent.core.AgentProcessStatusCode;
 import com.embabel.agent.core.ProcessOptions;
 import com.embabel.agent.domain.io.UserInput;
-import com.embabel.agent.testing.integration.IntegrationTestUtils;
+import com.embabel.agent.test.integration.IntegrationTestUtils;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -82,7 +82,10 @@ class SimpleAgentBuilderTest {
             var agent = SimpleAgentBuilder
                     .returning(Person.class)
                     .consuming(Combined.class)
-                    .running(tac -> new Person("Geoff", 55))
+                    .running(tac -> {
+                        assertEquals("James", tac.getInput().name(), "Expected name");
+                        return new Person("Geoff", 55);
+                    })
                     .buildAgent("name", "description");
             var ap = IntegrationTestUtils.dummyAgentPlatform();
             var result = ap.runAgentFrom(

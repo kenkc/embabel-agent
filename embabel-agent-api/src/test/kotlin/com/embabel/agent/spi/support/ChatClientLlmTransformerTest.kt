@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,22 +18,28 @@ package com.embabel.agent.spi.support
 import com.embabel.agent.api.common.InteractionId
 import com.embabel.agent.api.common.PlatformServices
 import com.embabel.agent.api.common.ToolsStats
-import com.embabel.agent.core.*
-import com.embabel.agent.event.AgenticEventListener
-import com.embabel.agent.spi.LlmInteraction
+import com.embabel.agent.api.event.AgenticEventListener
+import com.embabel.agent.core.Agent
+import com.embabel.agent.core.AgentPlatform
+import com.embabel.agent.core.AgentProcess
+import com.embabel.agent.core.LlmInvocation
+import com.embabel.agent.core.LlmInvocationHistory
+import com.embabel.agent.core.ProcessContext
+import com.embabel.agent.core.ProcessOptions
+import com.embabel.agent.core.support.LlmInteraction
 import com.embabel.agent.spi.support.springai.ChatClientLlmOperations
-import com.embabel.agent.spi.support.springai.DefaultToolDecorator
-import com.embabel.agent.spi.support.springai.MaybeReturn
-import com.embabel.agent.testing.common.EventSavingAgenticEventListener
+import com.embabel.agent.spi.support.MaybeReturn
+import com.embabel.agent.spi.support.springai.SpringAiLlmService
+import com.embabel.agent.test.common.EventSavingAgenticEventListener
 import com.embabel.chat.UserMessage
 import com.embabel.common.ai.model.DefaultOptionsConverter
-import com.embabel.common.ai.model.Llm
 import com.embabel.common.ai.model.ModelProvider
 import com.embabel.common.textio.template.JinjavaTemplateRenderer
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import jakarta.validation.Validation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Disabled
@@ -94,7 +100,7 @@ class ChatClientLlmTransformerTest {
                     eventListener = ese,
                 )
                 assertEquals(person, result)
-                assertEquals(3, ese.processEvents.size)
+                assertEquals(5, ese.processEvents.size)
             }
 
             @Test
@@ -153,8 +159,14 @@ class ChatClientLlmTransformerTest {
             val mockProcessContext = mockk<ProcessContext>()
             every { mockProcessContext.onProcessEvent(any()) } answers { eventListener.onProcessEvent(firstArg()) }
             every { mockProcessContext.platformServices } returns mockPlatformServices
+            every { mockProcessContext.processOptions } returns ProcessOptions()
             every { mockProcessContext.agentProcess } returns mockAgentProcess
             every { mockAgentProcess.processContext } returns mockProcessContext
+
+            // Add blackboard for guardrail validation (defensive - returns null if not needed)
+            val blackboard = mockk<com.embabel.agent.core.Blackboard>(relaxed = true)
+            every { mockAgentProcess.blackboard } returns blackboard
+
             val mockModelProvider = mockk<ModelProvider>()
             val mockChatModel = mockk<ChatModel>()
             every { mockChatModel.defaultOptions } returns DefaultChatOptions()
@@ -164,15 +176,17 @@ class ChatClientLlmTransformerTest {
                     Generation(AssistantMessage(llmReturn)),
                 ),
             )
-            every { mockModelProvider.getLlm(any()) } returns Llm(
+            every { mockModelProvider.getLlm(any()) } returns SpringAiLlmService(
                 "test", "provider", mockChatModel,
                 DefaultOptionsConverter
             )
 
             val transformer = ChatClientLlmOperations(
-                mockModelProvider,
-                DefaultToolDecorator(),
-                JinjavaTemplateRenderer(),
+                modelProvider = mockModelProvider,
+                toolDecorator = DefaultToolDecorator(),
+                validator = Validation.buildDefaultValidatorFactory().validator,
+                templateRenderer = JinjavaTemplateRenderer(),
+                asyncer = ExecutorAsyncer(java.util.concurrent.Executors.newCachedThreadPool()),
             )
             return transformer.createObject(
                 messages = listOf(UserMessage("Say hello")),
@@ -218,7 +232,8 @@ class ChatClientLlmTransformerTest {
                     outputClass = SpiPerson::class.java,
                 )
                 assertEquals(Result.success(person), result.result)
-                assertEquals(3, ese.processEvents.size)
+                // Embabel tool loop emits: LlmRequestEvent, ToolLoopStartEvent, ToolLoopCompletedEvent, LlmMaybeResponseEvent + ChatModelCallEvent
+                assertEquals(5, ese.processEvents.size)
             }
 
             @Test
@@ -326,6 +341,7 @@ class ChatClientLlmTransformerTest {
             val mockProcessContext = mockk<ProcessContext>()
             every { mockProcessContext.onProcessEvent(any()) } answers { eventListener.onProcessEvent(firstArg()) }
             every { mockProcessContext.platformServices } returns mockPlatformServices
+            every { mockProcessContext.processOptions } returns ProcessOptions()
             every { mockProcessContext.agentProcess } returns mockAgentProcess
             every { mockAgentProcess.processContext } returns mockProcessContext
             every { mockAgentProcess.recordLlmInvocation(any()) } answers {
@@ -333,6 +349,11 @@ class ChatClientLlmTransformerTest {
                     firstArg()
                 )
             }
+
+            // Add blackboard for guardrail validation (defensive - returns null if not needed)
+            val blackboard = mockk<com.embabel.agent.core.Blackboard>(relaxed = true)
+            every { mockAgentProcess.blackboard } returns blackboard
+
             val mockModelProvider = mockk<ModelProvider>()
             val mockChatModel = mockk<ChatModel>()
             every { mockChatModel.defaultOptions } returns DefaultChatOptions()
@@ -342,16 +363,18 @@ class ChatClientLlmTransformerTest {
                     Generation(AssistantMessage(llmReturn)),
                 ),
             )
-            every { mockModelProvider.getLlm(any()) } returns Llm(
+            every { mockModelProvider.getLlm(any()) } returns SpringAiLlmService(
                 "test", "provider", mockChatModel,
                 DefaultOptionsConverter
             )
 
             val transformer =
                 ChatClientLlmOperations(
-                    mockModelProvider,
-                    DefaultToolDecorator(),
-                    JinjavaTemplateRenderer(),
+                    modelProvider = mockModelProvider,
+                    toolDecorator = DefaultToolDecorator(),
+                    templateRenderer = JinjavaTemplateRenderer(),
+                    validator = Validation.buildDefaultValidatorFactory().validator,
+                    asyncer = ExecutorAsyncer(java.util.concurrent.Executors.newCachedThreadPool()),
                 )
             val result = transformer.createObjectIfPossible(
                 messages = listOf(UserMessage("Say hello")),

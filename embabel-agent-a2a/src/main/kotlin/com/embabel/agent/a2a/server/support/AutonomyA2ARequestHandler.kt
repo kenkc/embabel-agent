@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,38 +20,14 @@ import com.embabel.agent.a2a.server.A2ARequestHandler
 import com.embabel.agent.a2a.server.A2AResponseEvent
 import com.embabel.agent.api.common.autonomy.AgentProcessExecution
 import com.embabel.agent.api.common.autonomy.Autonomy
+import com.embabel.agent.api.event.AgenticEventListener
 import com.embabel.agent.core.ProcessOptions
-import com.embabel.agent.event.AgenticEventListener
-import io.a2a.spec.Artifact
-import io.a2a.spec.CancelTaskRequest
-import io.a2a.spec.CancelTaskResponse
-import io.a2a.spec.DataPart
-import io.a2a.spec.EventKind
-import io.a2a.spec.GetTaskRequest
-import io.a2a.spec.GetTaskResponse
-import io.a2a.spec.JSONRPCErrorResponse
-import io.a2a.spec.JSONRPCResponse
-import io.a2a.spec.Message
-import io.a2a.spec.MessageSendParams
-import io.a2a.spec.NonStreamingJSONRPCRequest
-import io.a2a.spec.SendMessageRequest
-import io.a2a.spec.SendMessageResponse
-import io.a2a.spec.SendStreamingMessageRequest
-import io.a2a.spec.StreamingJSONRPCRequest
-import io.a2a.spec.Task
-import io.a2a.spec.TaskIdParams
-import io.a2a.spec.TaskNotFoundError
-import io.a2a.spec.TaskQueryParams
-import io.a2a.spec.TaskState
-import io.a2a.spec.TaskStatus
-import io.a2a.spec.TaskStatusUpdateEvent
-import io.a2a.spec.TextPart
+import io.a2a.spec.*
 import org.slf4j.LoggerFactory
-import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
-import java.time.LocalDateTime
-import java.util.UUID
+import java.time.OffsetDateTime
+import java.util.*
 
 /**
  * Handle A2A messages according to the A2A protocol.
@@ -59,7 +35,6 @@ import java.util.UUID
  * in front of this class must handle that.
  */
 @Service
-@Profile("a2a")
 class AutonomyA2ARequestHandler(
     private val autonomy: Autonomy,
     private val agenticEventListener: AgenticEventListener,
@@ -75,8 +50,21 @@ class AutonomyA2ARequestHandler(
         }
     }
 
+    /**
+     * Handles streaming JSON-RPC requests that are not part of the standard SDK
+     */
+    fun handleCustomStreamingRequest(method: String, requestMap: Map<String, Any>, objectMapper: com.fasterxml.jackson.databind.ObjectMapper): SseEmitter {
+        return when (method) {
+            TaskResubscriptionRequest.METHOD -> {
+                val request = objectMapper.convertValue(requestMap, TaskResubscriptionRequest::class.java)
+                handleTaskResubscribe(request)
+            }
+            else -> throw UnsupportedOperationException("Method $method is not supported for streaming")
+        }
+    }
+
     override fun handleJsonRpc(
-        request: NonStreamingJSONRPCRequest<*>
+        request: NonStreamingJSONRPCRequest<*>,
     ): JSONRPCResponse<*> {
         logger.info("Received JSONRPC message {}: {}", request.method, request::class.java.name)
         agenticEventListener.onPlatformEvent(
@@ -128,10 +116,13 @@ class AutonomyA2ARequestHandler(
                 processOptions = ProcessOptions(),
             )
 
+            // Extract content for status message if output is HasContent
+            val statusMessage = extractContentForDisplay(result)
+
             val task = Task.Builder()
                 .id(ensureTaskId(params.message.taskId))
                 .contextId(ensureContextId(params.message.contextId))
-                .status(TaskStatus(TaskState.COMPLETED))
+                .status(createCompletedTaskStatus(params, statusMessage))
                 .history(listOfNotNull(params.message))
                 .artifacts(
                     listOf(
@@ -150,7 +141,7 @@ class AutonomyA2ARequestHandler(
                 ensureTaskId(params.message.taskId),
                 TaskNotFoundError(
                     null,
-                   "Internal error: ${e.message}",
+                    "Internal error: ${e.message}",
                     e.stackTraceToString()
                 )
             )
@@ -160,26 +151,26 @@ class AutonomyA2ARequestHandler(
     fun handleMessageStream(request: SendStreamingMessageRequest): SseEmitter {
         val params = request.params
         val streamId = request.id?.toString() ?: UUID.randomUUID().toString()
-        val emitter = streamingHandler.createStream(streamId)
+        val taskId = ensureTaskId(params.message.taskId)
+        val contextId = ensureContextId(params.message.contextId)
+
+        val emitter = streamingHandler.createStream(streamId, taskId, contextId)
 
         Thread.startVirtualThread {
             try {
                 // Send initial status event
                 streamingHandler.sendStreamEvent(
-                    streamId, TaskStatusUpdateEvent.Builder()
-                        .taskId(params.message.taskId)
-                        .contextId(params.message.contextId)
+                    streamId,
+                    TaskStatusUpdateEvent.Builder()
+                        .taskId(taskId)
+                        .contextId(contextId)
                         .status(createWorkingTaskStatus(params, "Task started..."))
-                        .build()
+                        .build(),
+                    taskId
                 )
 
-                // Send the received message, if any
-                params.message?.let { userMsg ->
-                    streamingHandler.sendStreamEvent(streamId, userMsg)
-                }
-
                 val intent = params.message?.parts?.filterIsInstance<TextPart>()?.firstOrNull()?.text
-                    ?: "Task ${params.message.taskId}"
+                    ?: "Task $taskId"
 
                 // Execute the task using autonomy service
                 val result = autonomy.chooseAndRunAgent(
@@ -190,36 +181,42 @@ class AutonomyA2ARequestHandler(
 
                 // Send intermediate status updates
                 streamingHandler.sendStreamEvent(
-                    streamId, TaskStatusUpdateEvent.Builder()
-                        .taskId(params.message.taskId)
-                        .contextId(ensureContextId(params.message.contextId))
+                    streamId,
+                    TaskStatusUpdateEvent.Builder()
+                        .taskId(taskId)
+                        .contextId(contextId)
                         .status(createWorkingTaskStatus(params, "Processing task..."))
-                        .build()
+                        .build(),
+                    taskId
                 )
 
-                // Send result
-                val taskResult = Task.Builder()
-                    .id(params.message.taskId)
-                    .contextId("ctx_${UUID.randomUUID()}")
-                    .status(createCompletedTaskStatus(params))
-                    .history(listOfNotNull(params.message))
-                    .artifacts(
-                        listOf(
-                            createResultArtifact(result, params.configuration?.acceptedOutputModes)
-                        )
-                    )
-                    .metadata(null)
-                    .build()
-                streamingHandler.sendStreamEvent(streamId, taskResult)
+                // Extract content for status message if output is HasContent
+                val statusMessage = extractContentForDisplay(result)
+
+                // Send FINAL status update with content
+                // Per A2A spec: final status-update with final=true is sufficient for completion
+                // Task objects in streaming should only appear at the beginning, not at the end
+                streamingHandler.sendStreamEvent(
+                    streamId,
+                    TaskStatusUpdateEvent.Builder()
+                        .taskId(taskId)
+                        .contextId(contextId)
+                        .status(createCompletedTaskStatus(params, statusMessage))
+                        .isFinal(true)
+                        .build(),
+                    taskId
+                )
             } catch (e: Exception) {
                 logger.error("Streaming error", e)
                 try {
                     streamingHandler.sendStreamEvent(
-                        streamId, TaskStatusUpdateEvent.Builder()
-                            .taskId(params.message.taskId)
-                            .contextId(ensureContextId(params.message.contextId))
+                        streamId,
+                        TaskStatusUpdateEvent.Builder()
+                            .taskId(taskId)
+                            .contextId(contextId)
                             .status(createFailedTaskStatus(params, e))
-                            .build()
+                            .build(),
+                        taskId
                     )
                 } catch (sendError: Exception) {
                     logger.error("Error sending error event", sendError)
@@ -230,6 +227,31 @@ class AutonomyA2ARequestHandler(
         }
 
         return emitter
+    }
+
+    /**
+     * Handles task resubscription requests
+     */
+    fun handleTaskResubscribe(request: TaskResubscriptionRequest): SseEmitter {
+        val params = request.params
+        val taskId = params.id  // TaskIdParams.id contains the task identifier
+        val streamId = request.id?.toString() ?: UUID.randomUUID().toString()
+
+        logger.info("Handling task resubscribe request for taskId: {}, streamId: {}", taskId, streamId)
+
+        return try {
+            streamingHandler.resubscribeToTask(taskId, streamId)
+        } catch (e: IllegalArgumentException) {
+            logger.error("Task not found: {}", taskId, e)
+            val emitter = SseEmitter(Long.MAX_VALUE)
+            emitter.completeWithError(e)
+            emitter
+        } catch (e: Exception) {
+            logger.error("Error resubscribing to task: {}", taskId, e)
+            val emitter = SseEmitter(Long.MAX_VALUE)
+            emitter.completeWithError(e)
+            emitter
+        }
     }
 
     private fun handleTasksGet(
@@ -246,7 +268,10 @@ class AutonomyA2ARequestHandler(
         TODO()
     }
 
-    private fun createFailedTaskStatus(params: MessageSendParams, e: Exception): TaskStatus = TaskStatus(
+    private fun createFailedTaskStatus(
+        params: MessageSendParams,
+        e: Exception,
+    ): TaskStatus = TaskStatus(
         TaskState.FAILED,
         Message.Builder()
             .messageId(UUID.randomUUID().toString())
@@ -255,12 +280,12 @@ class AutonomyA2ARequestHandler(
             .contextId(params.message.contextId)
             .taskId(params.message.taskId)
             .build(),
-        LocalDateTime.now()
+        OffsetDateTime.now()
     )
 
     private fun createCompletedTaskStatus(
         params: MessageSendParams,
-        textPart: String = "Task completed successfully"
+        textPart: String = "Task completed successfully",
     ): TaskStatus = TaskStatus(
         TaskState.COMPLETED,
         Message.Builder()
@@ -270,12 +295,12 @@ class AutonomyA2ARequestHandler(
             .contextId(params.message.contextId)
             .taskId(params.message.taskId)
             .build(),
-        LocalDateTime.now()
+        OffsetDateTime.now()
     )
 
     private fun createWorkingTaskStatus(
         params: MessageSendParams,
-        textPart: String = "Working..."
+        textPart: String = "Working...",
     ): TaskStatus = TaskStatus(
         TaskState.WORKING,
         Message.Builder()
@@ -285,7 +310,7 @@ class AutonomyA2ARequestHandler(
             .contextId(params.message.contextId)
             .taskId(params.message.taskId)
             .build(),
-        LocalDateTime.now()
+        OffsetDateTime.now()
     )
 
     private fun ensureContextId(providedContextId: String?): String {
@@ -296,18 +321,54 @@ class AutonomyA2ARequestHandler(
         return providedTaskId ?: UUID.randomUUID().toString()
     }
 
+    /**
+     * Extracts content from AgentProcessExecution for display in status messages.
+     * If output implements HasContent, returns the content field.
+     * Otherwise, returns a generic completion message.
+     */
+    private fun extractContentForDisplay(result: AgentProcessExecution): String {
+        val output = result.output
+        return if (output is com.embabel.agent.domain.library.HasContent) {
+            output.content
+        } else {
+            "Task completed successfully"
+        }
+    }
+
     private fun createResultArtifact(
         result: AgentProcessExecution,
-        acceptedOutputModes: List<String>? = emptyList()
+        acceptedOutputModes: List<String>? = emptyList(),
     ): Artifact {
         // TODO result should be based on the outputMode received in the "params.configuration.acceptedOutputModes"
+
+        val parts = buildList {
+            val output = result.output
+
+            // Check if output implements HasContent
+            if (output is com.embabel.agent.domain.library.HasContent) {
+                // Extract content and add as TextPart for end-user visibility
+                add(TextPart(output.content))
+
+                // Serialize the object without the content field for DataPart
+                // Convert to map using Jackson, then remove the content field
+                val objectMapper = com.fasterxml.jackson.databind.ObjectMapper()
+                    .registerModule(com.fasterxml.jackson.module.kotlin.KotlinModule.Builder().build())
+                    .findAndRegisterModules()
+
+                @Suppress("UNCHECKED_CAST")
+                val outputMap = objectMapper.convertValue(output, Map::class.java) as MutableMap<String, Any?>
+                outputMap.remove("content")
+
+                add(DataPart(mapOf("output" to outputMap)))
+            } else {
+                // Standard behavior: serialize entire output in DataPart
+                add(DataPart(mapOf("output" to output)))
+            }
+        }
+
         return Artifact.Builder()
             .artifactId(UUID.randomUUID().toString())
-            .parts(
-                listOf(
-                    DataPart(mapOf("output" to result.output))
-                )
-            )
+            .parts(parts)
             .build()
     }
 }

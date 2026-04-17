@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,9 @@ package com.embabel.agent.api.common.workflow.control
 
 import com.embabel.agent.api.common.SupplierActionContext
 import com.embabel.agent.api.common.TransformationActionContext
-import com.embabel.agent.api.common.workflow.WorkFlowBuilderReturning
 import com.embabel.agent.api.common.workflow.WorkflowBuilder
-import com.embabel.agent.api.dsl.AgentScopeBuilder
+import com.embabel.agent.api.common.workflow.WorkflowBuilderReturning
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
 import java.util.function.Function
 import java.util.function.Supplier
 
@@ -33,7 +33,7 @@ class ScatterGatherBuilder<ELEMENT : Any, RESULT : Any>(
     private val maxConcurrency: Int = DEFAULT_MAX_CONCURRENCY,
 ) {
 
-    companion object : WorkFlowBuilderReturning {
+    companion object : WorkflowBuilderReturning {
 
         const val DEFAULT_MAX_CONCURRENCY = 6
 
@@ -68,7 +68,7 @@ class ScatterGatherBuilder<ELEMENT : Any, RESULT : Any>(
     ): Generators {
         return Generators(
             generators = generators.map { generator ->
-                Function<SupplierActionContext<ELEMENT>, ELEMENT> { context ->
+                Function<SupplierActionContext<ELEMENT>, ELEMENT> { _ ->
                     generator.get()
                 }
             },
@@ -90,9 +90,9 @@ class ScatterGatherBuilder<ELEMENT : Any, RESULT : Any>(
     inner class Emitter(
         private val generators: List<Function<out SupplierActionContext<ELEMENT>, ELEMENT>>,
         private val consensusFunction: (TransformationActionContext<ResultList<ELEMENT>, RESULT>) -> RESULT,
-    ) : WorkflowBuilder<RESULT>(resultClass, inputClasses = emptyList()) {
+    ) : WorkflowBuilder<RESULT>(resultClass, inputClass = null) {
 
-        override fun build(): AgentScopeBuilder<RESULT> {
+        override fun build(): TypedAgentScopeBuilder<RESULT> {
             return ScatterGather(maxConcurrency = maxConcurrency)
                 .forkJoin(
                     generators = generators.map { it::apply } as List<(SupplierActionContext<ELEMENT>) -> ELEMENT>,

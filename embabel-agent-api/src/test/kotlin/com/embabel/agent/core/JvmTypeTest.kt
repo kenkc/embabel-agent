@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,8 @@
 package com.embabel.agent.core
 
 import com.fasterxml.jackson.annotation.JsonClassDescription
-import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
 class JvmTypeTest {
@@ -33,7 +34,8 @@ class JvmTypeTest {
     fun `should default description`() {
         val type = JvmType(Dog::class.java)
         assertEquals(Dog::class.java.name, type.name)
-        assertEquals(Dog::class.java.name, type.description)
+        assertEquals(Dog::class.java.simpleName, type.description)
+        assertEquals(Dog::class.java.simpleName, type.ownLabel)
     }
 
     @Test
@@ -46,9 +48,831 @@ class JvmTypeTest {
     @Test
     fun `should list properties`() {
         val type = JvmType(Dog::class.java)
-        assertEquals(2, type.properties.size)
-        assertEquals("name", type.properties[0].name)
-        assertEquals("breed", type.properties[1].name)
+        assertEquals(2, type.ownProperties.size)
+        assertEquals("name", type.ownProperties[0].name)
+        assertEquals("breed", type.ownProperties[1].name)
     }
 
+    @Test
+    fun `should list scalar properties as SimplePropertyDefinition`() {
+        val type = JvmType(Dog::class.java)
+        val nameProperty = type.ownProperties[0]
+        assertEquals("name", nameProperty.name)
+        assert(nameProperty is ValuePropertyDefinition)
+        assertEquals("String", (nameProperty as ValuePropertyDefinition).type)
+    }
+
+    class Owner(
+        val name: String,
+        val dog: Dog,
+    )
+
+    @Test
+    fun `should nest entity properties as DomainTypePropertyDefinition`() {
+        val type = JvmType(Owner::class.java)
+        assertEquals(2, type.ownProperties.size)
+
+        val nameProperty = type.ownProperties[0]
+        assertEquals("name", nameProperty.name)
+        assert(nameProperty is ValuePropertyDefinition)
+
+        val dogProperty = type.ownProperties[1]
+        assertEquals("dog", dogProperty.name)
+        assert(dogProperty is DomainTypePropertyDefinition)
+
+        val dogType = (dogProperty as DomainTypePropertyDefinition).type
+        assert(dogType is JvmType)
+        assertEquals(Dog::class.java.name, (dogType as JvmType).className)
+    }
+
+    class Kennel(
+        val name: String,
+        val capacity: Int,
+        val dogs: List<Dog>,
+    )
+
+    @Test
+    fun `should nest collection of entities with cardinality`() {
+        val type = JvmType(Kennel::class.java)
+        assertEquals(3, type.ownProperties.size)
+
+        val nameProperty = type.ownProperties[0]
+        assertEquals("name", nameProperty.name)
+        assert(nameProperty is ValuePropertyDefinition)
+
+        val capacityProperty = type.ownProperties[1]
+        assertEquals("capacity", capacityProperty.name)
+        assert(capacityProperty is ValuePropertyDefinition)
+
+        val dogsProperty = type.ownProperties[2]
+        assertEquals("dogs", dogsProperty.name)
+        assert(dogsProperty is DomainTypePropertyDefinition)
+        val domainProp = dogsProperty as DomainTypePropertyDefinition
+        assertEquals(Dog::class.java.name, (domainProp.type as JvmType).className)
+        assertEquals(Cardinality.LIST, domainProp.cardinality)
+    }
+
+    @Test
+    fun `should verify nested entity has its own properties`() {
+        val type = JvmType(Owner::class.java)
+        val dogProperty = type.ownProperties[1] as DomainTypePropertyDefinition
+        val dogType = dogProperty.type as JvmType
+
+        assertEquals(2, dogType.ownProperties.size)
+        assertEquals("name", dogType.ownProperties[0].name)
+        assertEquals("breed", dogType.ownProperties[1].name)
+    }
+
+    open class Animal(
+        val name: String,
+    )
+
+    class Horse(
+        name: String,
+        val breed: String,
+    ) : Animal(name)
+
+    @Test
+    fun `should detect parent class`() {
+        val type = JvmType(Horse::class.java)
+        assertEquals(1, type.parents.size)
+        assertEquals(Animal::class.java.name, type.parents[0].className)
+    }
+
+    @Test
+    fun `should include inherited properties in properties`() {
+        val type = JvmType(Horse::class.java)
+        assertEquals(1, type.ownProperties.size)
+        assertEquals("breed", type.ownProperties[0].name)
+
+        assertEquals(2, type.properties.size)
+        val propertyNames = type.properties.map { it.name }
+        assert(propertyNames.contains("breed"))
+        assert(propertyNames.contains("name"))
+    }
+
+    interface Vehicle {
+        val wheels: Int
+    }
+
+    class Truck(
+        override val wheels: Int,
+        val capacity: Int,
+    ) : Vehicle
+
+    @Test
+    fun `should detect interface parent`() {
+        val type = JvmType(Truck::class.java)
+        assertEquals(1, type.parents.size)
+        assertEquals(Vehicle::class.java.name, type.parents[0].className)
+    }
+
+    @Test
+    fun `should include interface properties in properties`() {
+        val type = JvmType(Truck::class.java)
+        assertEquals(2, type.ownProperties.size)
+
+        // Note: Interface properties are not exposed as fields via reflection,
+        // so they won't be included in the properties list
+        assertEquals(2, type.properties.size)
+        val propertyNames = type.properties.map { it.name }
+        assert(propertyNames.contains("wheels"))
+        assert(propertyNames.contains("capacity"))
+    }
+
+    open class Pet(
+        val name: String,
+        val age: Int,
+    )
+
+    class Parrot(
+        name: String,
+        age: Int,
+        val color: String,
+    ) : Pet(name, age)
+
+    @Test
+    fun `should not duplicate inherited properties`() {
+        val type = JvmType(Parrot::class.java)
+        assertEquals(1, type.ownProperties.size)
+        assertEquals("color", type.ownProperties[0].name)
+
+        assertEquals(3, type.properties.size)
+        val propertyNames = type.properties.map { it.name }
+        assert(propertyNames.contains("name"))
+        assert(propertyNames.contains("age"))
+        assert(propertyNames.contains("color"))
+
+        // Verify no duplicates
+        assertEquals(propertyNames.size, propertyNames.distinct().size)
+    }
+
+    open class BaseEntity(
+        val id: String,
+    )
+
+    open class NamedEntity(
+        id: String,
+        val name: String,
+    ) : BaseEntity(id)
+
+    class Product(
+        id: String,
+        name: String,
+        val price: Double,
+    ) : NamedEntity(id, name)
+
+    @Test
+    fun `should deduplicate properties across multiple inheritance levels`() {
+        val type = JvmType(Product::class.java)
+        assertEquals(1, type.ownProperties.size)
+        assertEquals("price", type.ownProperties[0].name)
+
+        assertEquals(3, type.properties.size)
+        val propertyNames = type.properties.map { it.name }
+        assert(propertyNames.contains("id"))
+        assert(propertyNames.contains("name"))
+        assert(propertyNames.contains("price"))
+
+        // Verify no duplicates
+        assertEquals(propertyNames.size, propertyNames.distinct().size)
+    }
+
+    @Test
+    fun `should return own label as simple class name`() {
+        val type = JvmType(Dog::class.java)
+        assertEquals("Dog", type.ownLabel)
+    }
+
+    @Test
+    fun `should return labels including own type`() {
+        val type = JvmType(Dog::class.java)
+        val labels = type.labels
+        assertEquals(1, labels.size)
+        assert(labels.contains("Dog"))
+    }
+
+    @Test
+    fun `should include parent labels in labels`() {
+        val type = JvmType(Horse::class.java)
+        val labels = type.labels
+        assertEquals(2, labels.size)
+        assert(labels.contains("Horse"))
+        assert(labels.contains("Animal"))
+    }
+
+    @Test
+    fun `should include all ancestor labels`() {
+        val type = JvmType(Product::class.java)
+        val labels = type.labels
+        assertEquals(3, labels.size)
+        assert(labels.contains("Product"))
+        assert(labels.contains("NamedEntity"))
+        assert(labels.contains("BaseEntity"))
+    }
+
+    @Test
+    fun `should include interface labels`() {
+        val type = JvmType(Truck::class.java)
+        val labels = type.labels
+        assertEquals(2, labels.size)
+        assert(labels.contains("Truck"))
+        assert(labels.contains("Vehicle"))
+    }
+
+    // Test classes for children method
+    abstract class TestVehicle
+
+    class TestCar : TestVehicle()
+
+    class TestMotorcycle : TestVehicle()
+
+    interface TestFlyable
+
+    class TestAirplane : TestVehicle(), TestFlyable
+
+    class TestBird : TestFlyable
+
+    @Test
+    fun `should find children classes in current package`() {
+        val vehicleType = JvmType(TestVehicle::class.java)
+        val children = vehicleType.children(listOf("com.embabel.agent.core"))
+
+        assertNotNull(children, "Children should not be null")
+        assertTrue(children.isNotEmpty(), "Should find some children")
+
+        val childrenNames = children.map { it.name }.toSet()
+        assertTrue(childrenNames.contains(TestCar::class.java.name), "Should find TestCar")
+        assertTrue(childrenNames.contains(TestMotorcycle::class.java.name), "Should find TestMotorcycle")
+        assertTrue(childrenNames.contains(TestAirplane::class.java.name), "Should find TestAirplane")
+        assertFalse(childrenNames.contains(TestVehicle::class.java.name), "Should not include the parent class itself")
+    }
+
+    @Test
+    fun `should find interface implementers`() {
+        val flyableType = JvmType(TestFlyable::class.java)
+        val children = flyableType.children(listOf("com.embabel.agent.core"))
+
+        assertNotNull(children, "Children should not be null")
+        assertTrue(children.isNotEmpty(), "Should find some children")
+
+        val childrenNames = children.map { it.name }.toSet()
+        assertTrue(childrenNames.contains(TestAirplane::class.java.name), "Should find TestAirplane")
+        assertTrue(childrenNames.contains(TestBird::class.java.name), "Should find TestBird")
+        assertFalse(childrenNames.contains(TestFlyable::class.java.name), "Should not include the interface itself")
+    }
+
+    @Test
+    fun `should return empty list for leaf classes`() {
+        val dogType = JvmType(Dog::class.java)
+        val children = dogType.children(listOf("com.embabel.agent.core"))
+
+        assertNotNull(children, "Children should not be null")
+        assertTrue(children.isEmpty(), "Leaf classes should have no children")
+    }
+
+    @Test
+    fun `should handle non-existent packages gracefully`() {
+        val vehicleType = JvmType(TestVehicle::class.java)
+        val children = vehicleType.children(listOf("com.nonexistent.package"))
+
+        assertNotNull(children, "Children should not be null")
+        assertTrue(children.isEmpty(), "Should return empty list for non-existent packages")
+    }
+
+    @Test
+    fun `should find children across multiple packages`() {
+        val vehicleType = JvmType(TestVehicle::class.java)
+        val children = vehicleType.children(listOf("com.embabel.agent.core", "com.embabel"))
+
+        assertNotNull(children, "Children should not be null")
+        // Should at least find the test classes in the current package
+        val childrenNames = children.map { it.name }.toSet()
+        assertTrue(childrenNames.contains(TestCar::class.java.name), "Should find TestCar")
+    }
+
+    @Test
+    fun `should handle java standard library classes`() {
+        val listType = JvmType(java.util.List::class.java)
+        val children = listType.children(listOf("java.util"))
+
+        assertNotNull(children, "Children should not be null")
+        // Note: Spring's classpath scanner might not find all standard library classes
+        // This is expected behavior as it's designed for application classes
+        // Just verify the method doesn't throw exceptions
+//        println("Found ${children.size} children of List: ${children.map { it.name }}")
+    }
+
+    @Test
+    fun `should return distinct results`() {
+        val vehicleType = JvmType(TestVehicle::class.java)
+        // Use overlapping packages that might return duplicates
+        val children = vehicleType.children(listOf("com.embabel.agent.core", "com.embabel.agent"))
+
+        assertNotNull(children, "Children should not be null")
+        val childrenNames = children.map { it.name }
+        assertEquals(childrenNames.size, childrenNames.distinct().size, "Should not have duplicate children")
+    }
+
+    @Test
+    fun `should work with concrete parent classes`() {
+        val animalType = JvmType(Animal::class.java)
+        val children = animalType.children(listOf("com.embabel.agent.core"))
+
+        assertNotNull(children, "Children should not be null")
+        val childrenNames = children.map { it.name }.toSet()
+        assertTrue(childrenNames.contains(Horse::class.java.name), "Should find Horse as child of Animal")
+    }
+
+    @Test
+    fun `should capitalize label from fully qualified class name`() {
+        val type = JvmType(String::class.java)
+        assertEquals("String", type.ownLabel)
+        assert(type.labels.contains("String"))
+    }
+
+    // Test classes for creationPermitted
+    class NoAnnotation
+
+    @CreationPermitted(true)
+    class CreationPermittedTrue
+
+    @CreationPermitted(false)
+    class CreationPermittedFalse
+
+    @Test
+    fun `creationPermitted should default to true when no annotation`() {
+        val type = JvmType(NoAnnotation::class.java)
+        assertTrue(type.creationPermitted, "Default should be true when no annotation")
+    }
+
+    @Test
+    fun `creationPermitted should return true when annotated with true`() {
+        val type = JvmType(CreationPermittedTrue::class.java)
+        assertTrue(type.creationPermitted, "Should return true when annotated with @CreationPermitted(true)")
+    }
+
+    @Test
+    fun `creationPermitted should return false when annotated with false`() {
+        val type = JvmType(CreationPermittedFalse::class.java)
+        assertFalse(type.creationPermitted, "Should return false when annotated with @CreationPermitted(false)")
+    }
+
+    // Test classes for @Semantics annotation
+    class Company(val name: String)
+
+    class Employee(
+        val name: String,
+
+        @field:Semantics(
+            [
+                With("predicate", "works at"),
+                With("inverse", "employs"),
+            ]
+        )
+        val worksAt: Company,
+    )
+
+    class EmployeeWithAliases(
+        val name: String,
+
+        @field:Semantics(
+            [
+                With("predicate", "works at"),
+                With("inverse", "employs"),
+                With("aliases", "is employed by, works for"),
+            ]
+        )
+        val worksAt: Company,
+    )
+
+    class PersonWithoutSemantics(
+        val name: String,
+        val friend: Dog,
+    )
+
+    class PersonWithValueSemantics(
+        @field:Semantics(
+            [
+                With("format", "email"),
+                With("validation", "required"),
+            ]
+        )
+        val email: String,
+    )
+
+    class KennelWithCollectionSemantics(
+        val name: String,
+
+        @field:Semantics(
+            [
+                With("predicate", "houses"),
+                With("inverse", "lives in"),
+            ]
+        )
+        val dogs: List<Dog>,
+    )
+
+    @Test
+    fun `property without Semantics annotation has empty metadata`() {
+        val type = JvmType(PersonWithoutSemantics::class.java)
+        val friendProperty = type.ownProperties.find { it.name == "friend" }
+        assertNotNull(friendProperty)
+        assertTrue(friendProperty!!.metadata.isEmpty(), "Metadata should be empty when no @Semantics annotation")
+    }
+
+    @Test
+    fun `property with Semantics annotation has correct metadata`() {
+        val type = JvmType(Employee::class.java)
+        val worksAtProperty = type.ownProperties.find { it.name == "worksAt" }
+
+        assertNotNull(worksAtProperty)
+        assertEquals(2, worksAtProperty!!.metadata.size)
+        assertEquals("works at", worksAtProperty.metadata["predicate"])
+        assertEquals("employs", worksAtProperty.metadata["inverse"])
+    }
+
+    @Test
+    fun `multiple With entries are all captured`() {
+        val type = JvmType(EmployeeWithAliases::class.java)
+        val worksAtProperty = type.ownProperties.find { it.name == "worksAt" }
+
+        assertNotNull(worksAtProperty)
+        assertEquals(3, worksAtProperty!!.metadata.size)
+        assertEquals("works at", worksAtProperty.metadata["predicate"])
+        assertEquals("employs", worksAtProperty.metadata["inverse"])
+        assertEquals("is employed by, works for", worksAtProperty.metadata["aliases"])
+    }
+
+    @Test
+    fun `Semantics on domain type property is captured`() {
+        val type = JvmType(Employee::class.java)
+        val worksAtProperty = type.ownProperties.find { it.name == "worksAt" }
+
+        assertNotNull(worksAtProperty)
+        assertTrue(worksAtProperty is DomainTypePropertyDefinition)
+        assertEquals("works at", worksAtProperty!!.metadata["predicate"])
+    }
+
+    @Test
+    fun `Semantics on value property is captured`() {
+        val type = JvmType(PersonWithValueSemantics::class.java)
+        val emailProperty = type.ownProperties.find { it.name == "email" }
+
+        assertNotNull(emailProperty)
+        assertTrue(emailProperty is ValuePropertyDefinition)
+        assertEquals(2, emailProperty!!.metadata.size)
+        assertEquals("email", emailProperty.metadata["format"])
+        assertEquals("required", emailProperty.metadata["validation"])
+    }
+
+    @Test
+    fun `Semantics on collection property is captured`() {
+        val type = JvmType(KennelWithCollectionSemantics::class.java)
+        val dogsProperty = type.ownProperties.find { it.name == "dogs" }
+
+        assertNotNull(dogsProperty)
+        assertTrue(dogsProperty is DomainTypePropertyDefinition)
+        assertEquals(Cardinality.LIST, dogsProperty!!.cardinality)
+        assertEquals(2, dogsProperty.metadata.size)
+        assertEquals("houses", dogsProperty.metadata["predicate"])
+        assertEquals("lives in", dogsProperty.metadata["inverse"])
+    }
+
+    class PersonWithEmptySemantics(
+        @field:Semantics([])
+        val name: String,
+    )
+
+    @Test
+    fun `empty Semantics annotation results in empty metadata`() {
+        val type = JvmType(PersonWithEmptySemantics::class.java)
+        val nameProperty = type.ownProperties.find { it.name == "name" }
+
+        assertNotNull(nameProperty)
+        assertTrue(nameProperty!!.metadata.isEmpty())
+    }
+
+    class PersonWithDefaultSemantics(
+        @field:Semantics
+        val name: String,
+    )
+
+    @Test
+    fun `Semantics annotation with no value array results in empty metadata`() {
+        val type = JvmType(PersonWithDefaultSemantics::class.java)
+        val nameProperty = type.ownProperties.find { it.name == "name" }
+
+        assertNotNull(nameProperty)
+        assertTrue(nameProperty!!.metadata.isEmpty())
+    }
+
+    // Test classes for Kotlin companion object filtering
+    class ClassWithCompanion(
+        val name: String,
+        val age: Int,
+    ) {
+        companion object {
+            const val DEFAULT_NAME = "Unknown"
+            fun create(name: String) = ClassWithCompanion(name, 0)
+        }
+    }
+
+    @Test
+    fun `should not include Companion field or static fields in properties`() {
+        val type = JvmType(ClassWithCompanion::class.java)
+        val propertyNames = type.ownProperties.map { it.name }
+
+        assertFalse(propertyNames.contains("Companion"), "Should not include Companion field")
+        assertFalse(propertyNames.contains("DEFAULT_NAME"), "Should not include static const from companion")
+        assertEquals(2, type.ownProperties.size, "Expected only name and age, but found: $propertyNames")
+        assertTrue(propertyNames.contains("name"))
+        assertTrue(propertyNames.contains("age"))
+    }
+
+    class OuterClass(
+        val name: String,
+    ) {
+        class InnerEntity(
+            val value: String,
+        )
+    }
+
+    class ClassWithInnerReference(
+        val name: String,
+        val inner: OuterClass.InnerEntity,
+    )
+
+    @Test
+    fun `should include legitimate inner class references as domain types`() {
+        val type = JvmType(ClassWithInnerReference::class.java)
+        val propertyNames = type.ownProperties.map { it.name }
+
+        assertEquals(2, type.ownProperties.size)
+        assertTrue(propertyNames.contains("name"))
+        assertTrue(propertyNames.contains("inner"))
+
+        val innerProperty = type.ownProperties.find { it.name == "inner" }
+        assertTrue(innerProperty is DomainTypePropertyDefinition, "Inner class should be a domain type")
+    }
+
+    class MixedPerson(
+        val name: String,
+
+        @field:Semantics([With("predicate", "befriends")])
+        val friend: Dog,
+
+        val age: Int,
+    )
+
+    @Test
+    fun `mixed properties with and without Semantics`() {
+        val type = JvmType(MixedPerson::class.java)
+
+        val nameProperty = type.ownProperties.find { it.name == "name" }
+        assertTrue(nameProperty!!.metadata.isEmpty())
+
+        val friendProperty = type.ownProperties.find { it.name == "friend" }
+        assertEquals(1, friendProperty!!.metadata.size)
+        assertEquals("befriends", friendProperty.metadata["predicate"])
+
+        val ageProperty = type.ownProperties.find { it.name == "age" }
+        assertTrue(ageProperty!!.metadata.isEmpty())
+    }
+
+    // Test interfaces with getter methods
+    interface SimpleEntity {
+        fun getName(): String
+        fun getAge(): Int
+    }
+
+    @Test
+    fun `should extract properties from interface getter methods`() {
+        val type = JvmType(SimpleEntity::class.java)
+        val propertyNames = type.ownProperties.map { it.name }
+
+        assertTrue(propertyNames.contains("name"), "Should extract name from getName()")
+        assertTrue(propertyNames.contains("age"), "Should extract age from getAge()")
+    }
+
+    interface BooleanEntity {
+        fun isActive(): Boolean
+        fun getName(): String
+    }
+
+    @Test
+    fun `should extract properties from is-prefixed getters`() {
+        val type = JvmType(BooleanEntity::class.java)
+        val propertyNames = type.ownProperties.map { it.name }
+
+        assertTrue(propertyNames.contains("active"), "Should extract active from isActive()")
+        assertTrue(propertyNames.contains("name"), "Should extract name from getName()")
+    }
+
+    interface EntityWithRelationship {
+        fun getName(): String
+        fun getRelated(): Dog
+    }
+
+    @Test
+    fun `should extract entity relationships from interface methods`() {
+        val type = JvmType(EntityWithRelationship::class.java)
+
+        val relatedProperty = type.ownProperties.find { it.name == "related" }
+        assertNotNull(relatedProperty, "Should find related property")
+        assertTrue(relatedProperty is DomainTypePropertyDefinition, "Should be a domain type property")
+
+        val domainProp = relatedProperty as DomainTypePropertyDefinition
+        assertEquals(Dog::class.java.name, (domainProp.type as JvmType).className)
+    }
+
+    interface EntityWithCollection {
+        fun getName(): String
+        fun getItems(): List<Dog>
+    }
+
+    @Test
+    fun `should extract collection properties from interface methods`() {
+        val type = JvmType(EntityWithCollection::class.java)
+
+        val itemsProperty = type.ownProperties.find { it.name == "items" }
+        assertNotNull(itemsProperty, "Should find items property")
+        assertTrue(itemsProperty is DomainTypePropertyDefinition, "Should be a domain type property")
+
+        val domainProp = itemsProperty as DomainTypePropertyDefinition
+        assertEquals(Cardinality.LIST, domainProp.cardinality)
+        assertEquals(Dog::class.java.name, (domainProp.type as JvmType).className)
+    }
+
+    interface EntityWithSetCollection {
+        fun getName(): String
+        fun getItems(): Set<Dog>
+    }
+
+    @Test
+    fun `should extract Set collection with SET cardinality from interface methods`() {
+        val type = JvmType(EntityWithSetCollection::class.java)
+
+        val itemsProperty = type.ownProperties.find { it.name == "items" }
+        assertNotNull(itemsProperty, "Should find items property")
+        assertTrue(itemsProperty is DomainTypePropertyDefinition, "Should be a domain type property")
+
+        val domainProp = itemsProperty as DomainTypePropertyDefinition
+        assertEquals(Cardinality.SET, domainProp.cardinality)
+    }
+
+    // Test that field properties take precedence over method properties
+    class ClassWithFieldsAndMethods(
+        val name: String,
+    ) {
+        fun getComputed(): String = name.uppercase()
+    }
+
+    @Test
+    fun `field properties should take precedence over method properties`() {
+        val type = JvmType(ClassWithFieldsAndMethods::class.java)
+        val propertyNames = type.ownProperties.map { it.name }
+
+        assertTrue(propertyNames.contains("name"), "Should have name property")
+        assertTrue(propertyNames.contains("computed"), "Should have computed property from getter")
+
+        // Should not have duplicate name
+        assertEquals(propertyNames.size, propertyNames.distinct().size, "No duplicate properties")
+    }
+
+    // Test case mimicking Java-style interfaces like Composer and Work from impromptu
+    // This simulates the pattern: Composer -[COMPOSED]-> List<Work>
+    interface TestWork {
+        fun getTitle(): String
+        fun isPopular(): Boolean
+    }
+
+    interface TestComposer {
+        fun getName(): String
+        fun getBirthYear(): Long?
+
+        // Simulates @Relationship(name = "COMPOSED") - actual annotation tested via impromptu domain
+        fun getWorks(): List<TestWork>
+    }
+
+    @Test
+    fun `should extract properties from Java-style entity interface like Composer`() {
+        val composerType = JvmType(TestComposer::class.java)
+        val propertyNames = composerType.ownProperties.map { it.name }
+
+        assertTrue(propertyNames.contains("name"), "Should extract name from getName()")
+        assertTrue(propertyNames.contains("birthYear"), "Should extract birthYear from getBirthYear()")
+        assertTrue(propertyNames.contains("works"), "Should extract works from getWorks()")
+
+        // Check works property is a relationship to TestWork
+        val worksProperty = composerType.ownProperties.find { it.name == "works" }
+        assertNotNull(worksProperty)
+        assertTrue(worksProperty is DomainTypePropertyDefinition, "works should be a domain type property")
+
+        val domainProp = worksProperty as DomainTypePropertyDefinition
+        assertEquals(TestWork::class.java.name, (domainProp.type as JvmType).className)
+        assertEquals(Cardinality.LIST, domainProp.cardinality, "works should have LIST cardinality")
+    }
+
+    @Test
+    fun `should extract properties from Java-style entity interface like Work`() {
+        val workType = JvmType(TestWork::class.java)
+        val propertyNames = workType.ownProperties.map { it.name }
+
+        assertTrue(propertyNames.contains("title"), "Should extract title from getTitle()")
+        assertTrue(propertyNames.contains("popular"), "Should extract popular from isPopular()")
+    }
+
+    @Test
+    fun `DataDictionary should find relationships between Java-style interfaces`() {
+        val dictionary = DataDictionary.fromClasses("test", TestComposer::class.java, TestWork::class.java)
+        val relationships = dictionary.allowedRelationships()
+
+        // Should find the works relationship from TestComposer to TestWork
+        assertEquals(1, relationships.size, "Should find one relationship")
+
+        val rel = relationships[0]
+        assertEquals("TestComposer", rel.from.ownLabel)
+        assertEquals("TestWork", rel.to.ownLabel)
+        assertEquals("works", rel.name)
+        assertEquals(Cardinality.LIST, rel.cardinality)
+    }
+
+    @Nested
+    inner class ChildrenCachingTests {
+
+        @Test
+        fun `children cache should return same result on repeated calls`() {
+            JvmType.clearChildrenCache()
+
+            val vehicleType = JvmType(TestVehicle::class.java)
+            val packages = listOf("com.embabel.agent.core")
+
+            val firstCall = vehicleType.children(packages)
+            val secondCall = vehicleType.children(packages)
+
+            assertSame(firstCall, secondCall, "Repeated calls should return cached result")
+        }
+
+        @Test
+        fun `children cache should differentiate by package list`() {
+            JvmType.clearChildrenCache()
+
+            val vehicleType = JvmType(TestVehicle::class.java)
+
+            val result1 = vehicleType.children(listOf("com.embabel.agent.core"))
+            val result2 = vehicleType.children(listOf("com.embabel"))
+
+            assertNotSame(result1, result2, "Different packages should not share cache")
+        }
+
+        @Test
+        fun `clearChildrenCache should invalidate cached results`() {
+            val vehicleType = JvmType(TestVehicle::class.java)
+            val packages = listOf("com.embabel.agent.core")
+
+            val beforeClear = vehicleType.children(packages)
+            JvmType.clearChildrenCache()
+            val afterClear = vehicleType.children(packages)
+
+            assertNotSame(beforeClear, afterClear, "After clear, should compute fresh result")
+            assertEquals(
+                beforeClear.map { it.name }.toSet(),
+                afterClear.map { it.name }.toSet(),
+                "Contents should be equal"
+            )
+        }
+
+        @Test
+        fun `cache key should be consistent regardless of package order`() {
+            JvmType.clearChildrenCache()
+
+            val vehicleType = JvmType(TestVehicle::class.java)
+
+            val result1 = vehicleType.children(listOf("com.embabel", "com.embabel.agent.core"))
+            val result2 = vehicleType.children(listOf("com.embabel.agent.core", "com.embabel"))
+
+            assertSame(result1, result2, "Package order should not affect cache key")
+        }
+
+        @Test
+        fun `framework types should not be cached`() {
+            JvmType.clearChildrenCache()
+
+            // DomainType is a framework type (com.embabel.agent.core) - should skip caching
+            val frameworkType = JvmType(DomainType::class.java)
+            val packages = listOf("com.embabel.agent.core")
+
+            val firstCall = frameworkType.children(packages)
+            val secondCall = frameworkType.children(packages)
+
+            // Not same reference = not cached (computed fresh each time)
+            assertNotSame(firstCall, secondCall, "Framework types should not be cached")
+            assertEquals(
+                firstCall.map { it.name }.toSet(),
+                secondCall.map { it.name }.toSet(),
+                "Contents should be equal"
+            )
+        }
+    }
 }

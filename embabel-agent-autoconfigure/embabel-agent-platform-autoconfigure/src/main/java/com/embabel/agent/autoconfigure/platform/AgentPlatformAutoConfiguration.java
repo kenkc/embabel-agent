@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,19 +16,25 @@
 package com.embabel.agent.autoconfigure.platform;
 
 
-import com.embabel.agent.config.AgentPlatformConfiguration;
-import com.embabel.agent.config.ToolGroupsConfiguration;
+import com.embabel.agent.spi.config.spring.AgentPlatformConfiguration;
+import com.embabel.agent.spi.config.spring.ToolGroupsConfiguration;
+import com.embabel.common.core.config.CommonPlatformPropertiesLoader;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.context.annotation.Import;
+
 
 /**
  * Bootstraps Agent Platform Configuration, Tools Configuration, and Rag Service Configuration
  */
 @AutoConfiguration
-@Import({ScanConfiguration.class, AgentPlatformConfiguration.class, ToolGroupsConfiguration.class,})
+@ImportAutoConfiguration({
+        QuiteMcpClientAutoConfiguration.class
+})
+@Import({CommonPlatformPropertiesLoader.class, ScanConfiguration.class, AgentPlatformConfiguration.class, ToolGroupsConfiguration.class,})
 public class AgentPlatformAutoConfiguration {
     final private static Logger logger = LoggerFactory.getLogger(AgentPlatformAutoConfiguration.class);
 

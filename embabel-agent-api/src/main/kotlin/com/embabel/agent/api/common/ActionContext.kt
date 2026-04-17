@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,22 @@
  */
 package com.embabel.agent.api.common
 
-import com.embabel.agent.api.common.support.OperationContextPromptRunner
-import com.embabel.agent.api.dsl.AgentScopeBuilder
-import com.embabel.agent.channel.MessageOutputChannelEvent
-import com.embabel.agent.channel.OutputChannelEvent
-import com.embabel.agent.channel.ProgressOutputChannelEvent
-import com.embabel.agent.core.*
-import com.embabel.agent.prompt.element.ContextualPromptElement
+import com.embabel.agent.api.channel.MessageOutputChannelEvent
+import com.embabel.agent.api.channel.OutputChannelEvent
+import com.embabel.agent.api.channel.ProgressOutputChannelEvent
+import com.embabel.agent.api.common.support.DelegatingStreamingPromptRunner
+import com.embabel.agent.api.common.support.OperationContextDelegate
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
+import com.embabel.agent.api.tool.ToolObject
+import com.embabel.agent.core.Action
+import com.embabel.agent.core.Agent
+import com.embabel.agent.core.AgentProcess
+import com.embabel.agent.core.Blackboard
+import com.embabel.agent.core.InjectedType
+import com.embabel.agent.core.Operation
+import com.embabel.agent.core.ProcessContext
+import com.embabel.agent.core.ToolGroupRequirement
+import com.embabel.chat.Conversation
 import com.embabel.chat.Message
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.prompt.CurrentDate
@@ -42,10 +51,28 @@ interface ExecutingOperationContext : OperationContext {
         )
     }
 
+    /**
+     * Convenience method to send a message to the output channel of the process
+     * and save it to the conversation in the blackboard.
+     * @throws IllegalStateException if there is not exactly one Conversation in the blackboard.
+     */
+    infix fun sendAndSave(message: Message) {
+        sendMessage(message)
+        val conversation = processContext.blackboard.objectsOfType(Conversation::class.java)
+            .singleOrNull() ?: error("No single conversation found in blackboard to save message to")
+        conversation.addMessage(message)
+    }
+
+    /**
+     * Send a progress update to the output channel of the process.
+     */
     fun updateProgress(message: String) {
         sendOutputChannelEvent(ProgressOutputChannelEvent(agentProcess.id, message))
     }
 
+    /**
+     * Send an output channel event to the output channel of the process.
+     */
     fun sendOutputChannelEvent(event: OutputChannelEvent) {
         processContext.outputChannel.send(
             event
@@ -59,9 +86,9 @@ interface ExecutingOperationContext : OperationContext {
      */
     fun <O : Any> asSubProcess(
         outputClass: Class<O>,
-        agentScopeBuilder: AgentScopeBuilder<O>,
+        agentScopeBuilder: TypedAgentScopeBuilder<O>,
     ): O {
-        val agent = agentScopeBuilder.build().createAgent(
+        val agent = agentScopeBuilder.createAgentScope().createAgent(
             name = agentScopeBuilder.name,
             provider = agentScopeBuilder.provider,
             description = agentScopeBuilder.name,
@@ -141,22 +168,17 @@ interface ActionContext : ExecutingOperationContext {
     ): PromptRunner {
         val promptContributorsToUse = (promptContributors + CurrentDate()).distinctBy { it.promptContribution().role }
 
-        val doi = domainObjectInstances()
-        return OperationContextPromptRunner(
-            this,
-            llm = llm,
-            toolGroups = this.toolGroups + toolGroups,
-            toolObjects = (toolObjects + doi.map { ToolObject(it) }).distinct(),
-            promptContributors = promptContributorsToUse,
-            contextualPromptContributors = contextualPromptContributors,
-            generateExamples = generateExamples,
+        return DelegatingStreamingPromptRunner(
+            delegate = OperationContextDelegate(
+                context = this,
+                llm = llm,
+                toolGroups = this.toolGroups + toolGroups,
+                toolObjects = toolObjects,
+                promptContributors = promptContributorsToUse,
+                contextualPromptContributors = contextualPromptContributors,
+                generateExamples = generateExamples,
+            ),
         )
     }
-
-    /**
-     * Return the domain object instances that are relevant for this action context.
-     * They may expose tools.
-     */
-    fun domainObjectInstances(): List<Any>
 
 }

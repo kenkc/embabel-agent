@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
  */
 package com.embabel.agent.core
 
-import com.embabel.common.core.types.ZeroToOne
 import com.embabel.common.util.indent
 import com.embabel.common.util.indentLines
-import com.embabel.plan.goap.ConditionDetermination
-import com.embabel.plan.goap.EffectSpec
-import com.embabel.plan.goap.GoapGoal
+import com.embabel.plan.CostComputation
+import com.embabel.plan.common.condition.ConditionDetermination
+import com.embabel.plan.common.condition.ConditionGoal
+import com.embabel.plan.common.condition.EffectSpec
 import com.fasterxml.jackson.annotation.JsonIgnore
 
 /**
@@ -31,7 +31,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore
  * so ensure that it is clear and unambiguous.
  * @param pre preconditions for the goal, as a set of strings. These are the conditions that must be true before the goal can be achieved.
  * @param inputs inputs required for the goal, as a set of IoBinding objects. These are the inputs that must be provided to achieve the goal.
- * @param outputType if this goal returns a single instance of a Java class, this is the class that will be returned.
+ * @param outputType if this goal returns a single instance of a domain type, this is the class that will be returned.
  * @param value value of the goal, as a ZeroToOne. This is the value of achieving the goal.
  * @param tags Set of tags describing classes or capabilities for this specific skill.
  *    example: ["cooking", "customer support", "billing"]
@@ -45,11 +45,12 @@ data class Goal(
     val pre: Set<String> = emptySet(),
     override val inputs: Set<IoBinding> = emptySet(),
     val outputType: DomainType?,
-    override val value: ZeroToOne = 0.0,
+    @field:JsonIgnore
+    override val value: CostComputation = { 0.0 },
     val tags: Set<String> = emptySet(),
     val examples: Set<String> = emptySet(),
     val export: Export = Export(),
-) : GoapGoal, AgentSystemStep {
+) : ConditionGoal, AgentSystemStep {
 
     // These methods are for Java, to obviate the builder antipattern
     fun withPreconditions(vararg preconditions: String): Goal {
@@ -63,14 +64,14 @@ data class Goal(
     /**
      * Create a goal with the given value.
      */
-    fun withValue(value: Double): Goal {
-        return copy(value = value)
+    fun withFixedValue(value: Double): Goal {
+        return copy(value = { value })
     }
 
     @JsonIgnore
     override val preconditions: EffectSpec =
         run {
-            val conditions = pre.associate { it to ConditionDetermination(true) }.toMutableMap()
+            val conditions = pre.associateWith { ConditionDetermination(true) }.toMutableMap()
             inputs.forEach { input ->
                 conditions[input.value] = ConditionDetermination(true)
             }
@@ -146,7 +147,7 @@ data class Goal(
                 inputs = inputs,
                 pre = pre.map { it.name }.toSet(),
                 outputType = if (satisfiedBy != null) JvmType(satisfiedBy) else null,
-                value = value,
+                value = { value },
                 tags = tags,
                 examples = examples,
             )

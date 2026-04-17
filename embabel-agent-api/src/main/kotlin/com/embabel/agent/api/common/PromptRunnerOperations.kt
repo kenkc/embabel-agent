@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,22 +76,51 @@ interface PromptRunnerOperations {
     ): T
 
     /**
+     * Generate text from multimodal content (text + images)
+     */
+    fun generateText(content: MultimodalContent): String =
+        createObject(
+            content = content,
+            outputClass = String::class.java,
+        )
+
+    /**
+     * Create an object from multimodal content (text + images)
+     */
+    fun <T> createObject(
+        content: MultimodalContent,
+        outputClass: Class<T>,
+    ): T = createObject(
+        messages = listOf(UserMessage(content.toContentParts())),
+        outputClass = outputClass,
+    )
+
+    /**
+     * Try to create an object from multimodal content (text + images)
+     */
+    fun <T> createObjectIfPossible(
+        content: MultimodalContent,
+        outputClass: Class<T>,
+    ): T? = createObjectIfPossible(
+        listOf(UserMessage(content.toContentParts())),
+        outputClass
+    )
+
+    /**
+     * Respond in a conversation with multimodal content
+     */
+    fun respond(
+        content: MultimodalContent,
+    ): AssistantMessage = respond(
+        listOf(UserMessage(content.toContentParts()))
+    )
+
+    /**
      * Respond in a conversation
      */
     fun respond(
         messages: List<Message>,
-    ): AssistantMessage =
-        AssistantMessage(
-            createObject(
-                messages = messages,
-                outputClass = String::class.java,
-            )
-        )
-
-    /**
-     * Use operations from a given template
-     */
-    fun withTemplate(templateName: String): TemplateOperations
+    ): AssistantMessage
 
     fun evaluateCondition(
         condition: String,

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
  */
 package com.embabel.agent.tools.file
 
-import com.embabel.agent.api.common.LlmReference
+import com.embabel.agent.api.reference.LlmReference
 import com.embabel.common.util.StringTransformer
 
 /**
  * Readonly access to a project on the local filesystem.
  */
-class LocalDirectory(
+data class LocalDirectory @JvmOverloads constructor(
     override val root: String,
     override val description: String,
     val notes: String = "",
@@ -34,4 +34,9 @@ class LocalDirectory(
     override val name: String get() = root.substringAfterLast('/')
 
     override fun notes() = notes
+
+    /**
+     * Returns a copy of this LocalDirectory with the given usage notes.
+     */
+    fun withUsageNotes(notes: String) = copy(notes = notes)
 }

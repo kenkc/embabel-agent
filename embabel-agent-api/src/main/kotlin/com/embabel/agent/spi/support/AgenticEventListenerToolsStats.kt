@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,9 @@ package com.embabel.agent.spi.support
 
 import com.embabel.agent.api.common.ToolStats
 import com.embabel.agent.api.common.ToolsStats
-import com.embabel.agent.event.AgentProcessEvent
-import com.embabel.agent.event.AgenticEventListener
-import com.embabel.agent.event.ToolCallResponseEvent
+import com.embabel.agent.api.event.AgentProcessEvent
+import com.embabel.agent.api.event.AgenticEventListener
+import com.embabel.agent.api.event.ToolCallResponseEvent
 
 class AgenticEventListenerToolsStats : AgenticEventListener, ToolsStats {
 

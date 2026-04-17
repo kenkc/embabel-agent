@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,10 @@
  */
 package com.embabel.chat.support.console
 
-import com.embabel.agent.channel.*
-import com.embabel.agent.event.logging.personality.ColorPalette
-import com.embabel.agent.event.logging.personality.DefaultColorPalette
+import com.embabel.agent.api.channel.*
+import com.embabel.agent.spi.logging.ColorPalette
+import com.embabel.agent.spi.logging.DefaultColorPalette
+import com.embabel.chat.Message
 import com.embabel.common.util.color
 import org.apache.commons.text.WordUtils
 
@@ -29,7 +30,7 @@ class ConsoleOutputChannel(
         when (event) {
             is MessageOutputChannelEvent -> {
                 val formattedResponse = WordUtils.wrap(
-                    "${event.message.sender}: ${event.message.content.color(colorPalette.color2)}",
+                    "${event.message.role.displayName}: ${event.message.content.color(colorPalette.color2)}",
                     140,
                 )
                 println(formattedResponse)

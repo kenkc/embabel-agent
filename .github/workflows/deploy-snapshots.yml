@@ -4,12 +4,18 @@ name: Deploy Snapshots
 
 on:
   workflow_dispatch:  # Enables manual triggering
+  workflow_run:
+    workflows: ["Build"]
+    types:
+      - completed
+    branches:
+      - main
 
 jobs:
   build-and-deploy:
 
     runs-on: ubuntu-latest
-
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
@@ -24,6 +30,43 @@ jobs:
           servers: ${{secrets.EMBABEL_ARTIFACTORY}}
       - name: Build and analyze
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
-        
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         run: mvn -U -DskipTests=true clean deploy
+
+  dispatch:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        repo:
+          - embabel/guide
+          - embabel/embabel-agent-examples
+          - embabel/vaadin-components
+          - embabel/dice
+          - embabel/embabel-agent-experimental
+          - embabel/tripper
+          - embabel/code-index
+          - embabel/coding-agent
+          - embabel/decker
+          - embabel/prepper
+          - embabel/grouper
+          - embabel/langgraph-patterns
+          - embabel/shepherd
+          - embabel/embabel-llm-database
+          - embabel/impromptu
+          - embabel/flicker
+          - embabel/embabel-agent-rag-neo-drivine
+          - embabel/embabel-rag-pgvector
+          - embabel/embabel-chat-store
+          - embabel/embabel-air
+          - embabel/modernizer
+          - embabel/ragbot
+          - embabel/urbot
+    steps:
+      - name: Trigger downstream workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          repository: ${{ matrix.repo }}
+          event-type: agent-snapshots-deployed

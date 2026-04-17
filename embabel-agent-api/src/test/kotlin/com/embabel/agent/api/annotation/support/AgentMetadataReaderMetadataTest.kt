@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +21,8 @@ import com.embabel.agent.api.dsl.Frog
 import com.embabel.agent.core.JvmType
 import com.embabel.agent.core.support.Rerun
 import com.embabel.agent.support.containsAll
-import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyAgentPlatform
-import com.embabel.plan.goap.ConditionDetermination
+import com.embabel.agent.test.integration.IntegrationTestUtils.dummyAgentPlatform
+import com.embabel.plan.common.condition.ConditionDetermination
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Nested
@@ -59,9 +59,15 @@ class AgentMetadataReaderMetadataTest {
         }
 
         @Test
-        fun `invalid action signature returning interface without serialization annotation`() {
-            val reader = AgentMetadataReader()
+        fun `invalid action signature returning interface without serialization annotation with check`() {
+            val reader = AgentMetadataReader(requireInterfaceDeserializationAnnotations = true)
             assertNull(reader.createAgentMetadata(InvalidActionNoDeserializationInInterfaceGoal()))
+        }
+
+        @Test
+        fun `invalid action signature returning interface without serialization annotation`() {
+            val reader = AgentMetadataReader(requireInterfaceDeserializationAnnotations = false)
+            assertNotNull(reader.createAgentMetadata(InvalidActionNoDeserializationInInterfaceGoal()))
         }
 
         @Test

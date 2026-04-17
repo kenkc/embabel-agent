@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import com.embabel.agent.api.common.SupplierActionContext
 import com.embabel.agent.api.common.TransformationActionContext
 import com.embabel.agent.api.common.support.SupplierAction
 import com.embabel.agent.api.common.support.TransformationAction
-import com.embabel.agent.api.dsl.AgentScopeBuilder
+import com.embabel.agent.api.dsl.TypedAgentScopeBuilder
 import com.embabel.agent.core.Action
 import com.embabel.agent.core.Goal
 import com.embabel.common.core.MobyNameGenerator
@@ -43,12 +43,12 @@ class ScatterGather(
         joinFunction: (TransformationActionContext<ResultList<ELEMENT>, RESULT>) -> RESULT,
         elementClass: Class<ELEMENT>,
         resultClass: Class<RESULT>,
-    ): AgentScopeBuilder<RESULT> {
+    ): TypedAgentScopeBuilder<RESULT> {
         val generateAction = SupplierAction(
             name = "=>${resultClass.name}",
             description = "Generate $resultClass",
-            cost = 0.0,
-            value = 0.0,
+            cost = { 0.0 },
+            value = { 0.0 },
             canRerun = true,
             outputClass = ResultList::class.java,
             toolGroups = emptySet(),
@@ -70,8 +70,8 @@ class ScatterGather(
         val consolidateAction: Action = TransformationAction(
             name = "consolidate-${resultClass.name}",
             description = "Consolidate results and feedback",
-            cost = 0.0,
-            value = 0.0,
+            cost = { 0.0 },
+            value = { 0.0 },
             toolGroups = emptySet(),
             inputClass = ResultList::class.java,
             outputClass = resultClass,
@@ -90,7 +90,7 @@ class ScatterGather(
         )
         logger.info("Created goal: {}", resultGoal.infoString(verbose = true, indent = 2))
 
-        return AgentScopeBuilder(
+        return TypedAgentScopeBuilder(
             name = MobyNameGenerator.generateName(),
             actions = listOf(
                 generateAction,

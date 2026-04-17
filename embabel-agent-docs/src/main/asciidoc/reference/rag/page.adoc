@@ -1,0 +1,1560 @@
+[[reference.rag]]
+=== RAG (Retrieval-Augmented Generation)
+
+Retrieval-Augmented Generation (RAG) is a technique that enhances LLM responses by retrieving relevant information from a knowledge base before generating answers.
+This grounds LLM outputs in specific, verifiable sources rather than relying solely on training data.
+
+For more background on RAG concepts, see:
+
+- https://en.wikipedia.org/wiki/Retrieval-augmented_generation[Wikipedia: Retrieval-Augmented Generation]
+- https://aws.amazon.com/what-is/retrieval-augmented-generation/[AWS: What is RAG?]
+
+Embabel Agent provides RAG support through the `LlmReference` interface, which allows you to attach references (including RAG stores) to LLM calls.
+The key classes are `ToolishRag` for exposing search operations as LLM tools, and `SearchOperations` for the underlying search functionality.
+
+==== Agentic RAG Architecture
+
+Unlike traditional RAG implementations that perform a single retrieval step, Embabel Agent's RAG is **entirely agentic and tool-based**.
+The LLM has full control over the retrieval process:
+
+- **Autonomous Search**: The LLM decides when to search, what queries to use, and how many results to retrieve
+- **Iterative Refinement**: The LLM can perform multiple searches with different queries until it finds relevant information
+- **Cross-Reference Discovery**: The LLM can follow references, expand chunks to see surrounding context, and zoom out to parent sections
+- **HyDE Support**: The LLM can generate hypothetical documents (HyDE queries) to improve semantic search results
+
+This agentic approach produces better results than single-shot RAG because the LLM can:
+
+1. Start with a broad search and narrow down
+2. Try different phrasings if initial queries return poor results
+3. Expand promising results to get more context
+4. Combine information from multiple chunks
+
+==== Facade Pattern for Safe Tool Exposure
+
+Embabel Agent uses a facade pattern to expose RAG capabilities safely and consistently across different store implementations.
+The `ToolishRag` class acts as a facade that:
+
+1. **Inspects Store Capabilities**: Examines which `SearchOperations` subinterfaces the store implements
+2. **Exposes Appropriate Tools**: Only creates tool wrappers for supported operations
+3. **Provides Consistent Interface**: All tools use the same parameter patterns regardless of underlying store
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Override
+public List<Tool> tools() {
+    List<Object> toolObjects = new ArrayList<>();
+    if (searchOperations instanceof VectorSearch) {
+        toolObjects.add(new VectorSearchTools((VectorSearch) searchOperations));
+    }
+    if (searchOperations instanceof TextSearch) {
+        toolObjects.add(new TextSearchTools((TextSearch) searchOperations));
+    }
+    if (searchOperations instanceof ResultExpander) {
+        toolObjects.add(new ResultExpanderTools((ResultExpander) searchOperations));
+    }
+    if (searchOperations instanceof RegexSearchOperations) {
+        toolObjects.add(new RegexSearchTools((RegexSearchOperations) searchOperations));
+    }
+    return toolObjects.stream()
+            .flatMap(obj -> Tool.fromInstance(obj).stream())
+            .toList();
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+override fun tools(): List<Tool> {
+    val toolObjects = buildList {
+        if (searchOperations is VectorSearch) {
+            add(VectorSearchTools(searchOperations))
+        }
+        if (searchOperations is TextSearch) {
+            add(TextSearchTools(searchOperations))
+        }
+        if (searchOperations is ResultExpander) {
+            add(ResultExpanderTools(searchOperations))
+        }
+        if (searchOperations is RegexSearchOperations) {
+            add(RegexSearchTools(searchOperations))
+        }
+    }
+    return toolObjects.flatMap { Tool.fromInstance(it) }
+}
+----
+====
+
+This means:
+
+- A Lucene store exposes vector search, text search, regex search, AND result expansion tools
+- A Spring AI VectorStore adapter exposes only vector search tools
+- A basic text-only store exposes only text search tools
+- A directory-based text search exposes text search and regex search
+
+The LLM sees only the tools that actually work with the configured store, preventing runtime errors from unsupported operations.
+
+==== Getting Started
+
+To use RAG in your Embabel Agent application, add the `rag-core` module and a store implementation to your `pom.xml`:
+
+[source,xml]
+----
+<dependency>
+    <groupId>com.embabel.agent</groupId>
+    <artifactId>embabel-agent-rag-lucene</artifactId>
+    <version>${embabel-agent.version}</version>
+</dependency>
+
+<dependency>
+    <groupId>com.embabel.agent</groupId>
+    <artifactId>embabel-agent-rag-tika</artifactId>
+    <version>${embabel-agent.version}</version>
+</dependency>
+----
+
+The `embabel-agent-rag-lucene` module provides Lucene-based vector and text search.
+The `embabel-agent-rag-tika` module provides Apache Tika integration for parsing various document formats.
+
+==== Our Model
+
+Embabel Agent uses a hierarchical content model that goes beyond traditional flat chunk storage:
+
+....
+Datum (sealed interface)
+│   Core: id, uri, metadata, labels()
+│
+├── ContentElement ─────────────────────────────────────┐
+│       Structural content (not embedded)               │
+│   ┌───────────────────────────────────────────────┐   │
+│   │ ContentRoot / NavigableDocument               │   │
+│   │     Documents with URI and title              │   │
+│   └───────────────────────────────────────────────┘   │
+│   ┌───────────────────────────────────────────────┐   │
+│   │ ContainerSection / LeafSection                │   │
+│   │     Hierarchical document sections            │   │
+│   └───────────────────────────────────────────────┘   │
+│                                                       │
+└── Retrievable ────────────────────────────────────────┤
+        Embeddable/searchable content                   │
+    ┌───────────────────────────────────────────────┐   │
+    │ Chunk                                         │   │
+    │     text, parentId, embedding                 │   │
+    │     Primary unit for vector search            │   │
+    └───────────────────────────────────────────────┘   │
+    ┌───────────────────────────────────────────────┐   │
+    │ NamedEntity                                   │   │
+    │     Domain entity contract (Person, Product)  │   │
+    │     name, description + domain properties     │   │
+    │                                               │   │
+    │   └── NamedEntityData                         │   │
+    │         Storage format with properties map    │   │
+    │         Hydration via toTypedInstance()       │   │
+    └───────────────────────────────────────────────┘   │
+                                                        │
+────────────────────────────────────────────────────────┘
+....
+
+**Key Design Points:**
+
+* `Datum` is the root sealed interface for all data objects
+* `ContentElement` branch contains structural content (documents, sections) that is NOT embedded
+* `Retrievable` branch contains searchable content with embeddings (chunks, entities)
+* `NamedEntity` is the domain contract for typed entities
+* `NamedEntityData` is the storage format with generic `properties` map and hydration support
+
+===== Content Elements
+
+The `ContentElement` interface is the supertype for all content in the RAG system.
+Key subtypes include:
+
+- **`ContentRoot`** / **`NavigableDocument`**: The root of a document hierarchy, with a required URI and title
+- **`Section`**: A hierarchical division of content with a title
+- **`ContainerSection`**: A section containing other sections
+- **`LeafSection`**: A section containing actual text content
+- **`Chunk`**: Traditional RAG text chunks, created by splitting `LeafSection` content
+
+===== Chunks
+
+`Chunk` is the primary unit for vector search.
+Each chunk:
+
+- Contains a `text` field with the content
+- Has a `parentId` linking to its source section
+- Includes `metadata` with information about its origin (root document, container section, leaf section)
+- Can compute its `pathFromRoot` through the document hierarchy
+
+This hierarchical model enables advanced RAG capabilities like "zoom out" to parent sections or expansion to adjacent chunks.
+
+==== SearchOperations
+
+`SearchOperations` is the tag interface for search functionality.
+Concrete implementations implement one or more subinterfaces based on their capabilities.
+This design allows stores to implement only what's natural and efficient for them—a vector database need not pretend to support full-text search, and a text search engine need not fake vector similarity.
+
+===== VectorSearch
+
+Classic semantic vector search:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public interface VectorSearch extends SearchOperations {
+    <T extends Retrievable> List<SimilarityResult<T>> vectorSearch(
+        TextSimilaritySearchRequest request,
+        Class<T> clazz
+    );
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+interface VectorSearch : SearchOperations {
+    fun <T : Retrievable> vectorSearch(
+        request: TextSimilaritySearchRequest,
+        clazz: Class<T>,
+    ): List<SimilarityResult<T>>
+}
+----
+====
+
+===== TextSearch
+
+Full-text search using Lucene query syntax:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public interface TextSearch extends SearchOperations {
+    <T extends Retrievable> List<SimilarityResult<T>> textSearch(
+        TextSimilaritySearchRequest request,
+        Class<T> clazz
+    );
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+interface TextSearch : SearchOperations {
+    fun <T : Retrievable> textSearch(
+        request: TextSimilaritySearchRequest,
+        clazz: Class<T>,
+    ): List<SimilarityResult<T>>
+}
+----
+====
+
+Supported query syntax includes:
+
+- `+term` - term must appear
+- `-term` - term must not appear
+- `"phrase"` - exact phrase match
+- `term*` - prefix wildcard
+- `term~` - fuzzy match
+
+===== ResultExpander
+
+Expand search results to surrounding context:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public interface ResultExpander extends SearchOperations {
+    List<ContentElement> expandResult(
+        String id,
+        Method method,
+        int elementsToAdd
+    );
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+interface ResultExpander : SearchOperations {
+    fun expandResult(
+        id: String,
+        method: Method,
+        elementsToAdd: Int,
+    ): List<ContentElement>
+}
+----
+====
+
+Expansion methods:
+
+- `SEQUENCE` - expand to previous and next chunks
+- `ZOOM_OUT` - expand to enclosing section
+
+===== RegexSearchOperations
+
+Pattern-based search across content:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public interface RegexSearchOperations extends SearchOperations {
+    <T extends Retrievable> List<SimilarityResult<T>> regexSearch(
+        Pattern regex,
+        int topK,
+        Class<T> clazz
+    );
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+interface RegexSearchOperations : SearchOperations {
+    fun <T : Retrievable> regexSearch(
+        regex: Regex,
+        topK: Int,
+        clazz: Class<T>,
+    ): List<SimilarityResult<T>>
+}
+----
+====
+
+Useful for finding specific patterns like error codes, identifiers, or structured content that doesn't match well with semantic or keyword search.
+
+===== CoreSearchOperations
+
+A convenience interface combining the most common search capabilities:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public interface CoreSearchOperations extends VectorSearch, TextSearch { }
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+interface CoreSearchOperations : VectorSearch, TextSearch
+----
+====
+
+Stores that support both vector and text search can implement this single interface for convenience.
+
+==== ToolishRag
+
+`ToolishRag` is an `LlmReference` that exposes `SearchOperations` as LLM tools.
+This gives the LLM fine-grained control over RAG searches.
+
+===== Configuration
+
+Create a `ToolishRag` by wrapping your `SearchOperations`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public ChatActions(SearchOperations searchOperations) {
+    this.toolishRag = new ToolishRag(
+            "sources",
+            "Sources for answering user questions",
+            searchOperations
+    );
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+class ChatActions(searchOperations: SearchOperations) {
+    private val toolishRag = ToolishRag(
+        "sources",
+        "Sources for answering user questions",
+        searchOperations
+    )
+}
+----
+====
+
+===== Using with LLM Calls
+
+Attach `ToolishRag` to an LLM call using `.withReference()`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Action(canRerun = true, trigger = UserMessage.class)
+void respond(Conversation conversation, ActionContext context) {
+    var assistantMessage = context.ai()
+            .withLlm(properties.chatLlm())
+            .withReference(toolishRag)
+            .rendering("ragbot")
+            .respondWithSystemPrompt(conversation, Map.of(
+                    "properties", properties
+            ));
+    context.sendMessage(conversation.addMessage(assistantMessage));
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Action(canRerun = true, trigger = UserMessage::class)
+fun respond(conversation: Conversation, context: ActionContext) {
+    val assistantMessage = context.ai()
+        .withLlm(properties.chatLlm())
+        .withReference(toolishRag)
+        .rendering("ragbot")
+        .respondWithSystemPrompt(conversation, mapOf(
+            "properties" to properties
+        ))
+    context.sendMessage(conversation.addMessage(assistantMessage))
+}
+----
+====
+
+Based on the capabilities of the underlying `SearchOperations`, `ToolishRag` exposes:
+
+- **VectorSearchTools**: `vectorSearch(query, topK, threshold)` - semantic similarity search
+- **TextSearchTools**: `textSearch(query, topK, threshold)` - BM25 full-text search with Lucene syntax
+- **RegexSearchTools**: `regexSearch(regex, topK)` - pattern-based search using regular expressions
+- **ResultExpanderTools**: `broadenChunk(chunkId, chunksToAdd)` - expand to adjacent chunks, `zoomOut(id)` - expand to parent section
+
+The LLM autonomously decides when to use these tools based on user queries.
+
+===== Eager Search
+
+By default, `ToolishRag` is entirely agentic—the LLM decides when to search and what queries to use.
+However, when the topic of the conversation is already known, you can **preload** relevant results before the LLM starts, giving it a head start and reducing the number of tool calls needed.
+
+`ToolishRag` implements the `EagerSearch` interface, which provides `withEagerSearchAbout()`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// Preload results about the user's topic before the LLM starts
+ToolishRag eagerRag = toolishRag
+    .withEagerSearchAbout("Kotlin coroutines", 10);
+
+context.ai()
+    .withReference(eagerRag)
+    .respondWithSystemPrompt(conversation, Map.of());
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// Preload results about the user's topic before the LLM starts
+val eagerRag = toolishRag
+    .withEagerSearchAbout("Kotlin coroutines", 10)
+
+context.ai()
+    .withReference(eagerRag)
+    .respondWithSystemPrompt(conversation, emptyMap())
+----
+====
+
+The preloaded results are included in the prompt as hints. The LLM still has access to all the usual search tools and can perform additional searches as needed.
+
+For more control over the search parameters, pass a `TextSimilaritySearchRequest` directly:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+var request = new TextSimilaritySearchRequest("Kotlin coroutines", 0.7, 10);
+ToolishRag eagerRag = toolishRag.withEagerSearchAbout(request);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+val request = TextSimilaritySearchRequest("Kotlin coroutines", 0.7, 10)
+val eagerRag = toolishRag.withEagerSearchAbout(request)
+----
+====
+
+TIP: Combining eager search with agentic tools is the sweet spot: preloaded results give the LLM an immediate head start (no round-trip needed), while the tools remain available for follow-up searches if the preloaded results aren't sufficient. You get the latency benefit of traditional RAG with the quality benefit of agentic RAG.
+
+IMPORTANT: Eager search requires `VectorSearch` support in the underlying `SearchOperations`. If the store does not support vector search, `withEagerSearchAbout()` throws `UnsupportedOperationException` eagerly at configuration time.
+
+[NOTE]
+.The `EagerSearch` Interface
+====
+`EagerSearch<T>` is a general-purpose interface in the `com.embabel.agent.api.reference` package for any `LlmReference` that can preload context via similarity search.
+`ToolishRag` is one implementation, but other reference types can implement `EagerSearch` to provide the same consistent pattern for preloading relevant context before an LLM call.
+====
+
+===== ToolishRag lifecycle
+
+It is safe to create a `ToolishRag` instance and reuse across many LLM calls.
+However, instances are not expensive to create, so you can create a new instance per LLM call.
+You might choose to do this if you provide a `ResultListener`
+that will collect queries and results for logging or analysis: for example, to track which queries were most useful for answering user questions and the complexity in terms of number of searches performed.
+This can be useful for implementing a learning feedback loop, for example to discern which queries performed badly, indicating that content such as documentation needs to be enhanced.
+
+===== Result Filtering
+
+In multi-tenant applications or scenarios where searches should be scoped to specific data subsets, `ToolishRag` supports **result filtering**.
+Filters are applied transparently to all searches—the LLM does not see or control them, ensuring security and data isolation.
+
+Embabel Agent provides two types of filters:
+
+- **Metadata Filters**: Filter on the `metadata` map of `Datum` objects (chunks, sections, etc.)
+- **Property Filters**: Filter on object properties of typed entities (e.g., fields of `NamedEntityData` or custom entity classes)
+
+Both use the same `PropertyFilter` type but are applied at different levels.
+
+====== Motivation
+
+Consider a document management system where:
+
+- Each document belongs to an owner (user or organization)
+- Some documents are shared reference data accessible to all users
+- The LLM should only search documents the current user is authorized to access
+
+Without filtering, you would need separate RAG stores per user or risk data leakage.
+With filtering, a single `ToolishRag` instance can be scoped per-request to the current user's data.
+
+====== Filter API
+
+Embabel Agent provides two filter interfaces for RAG searches:
+
+* **`PropertyFilter`**: Filters on map-based properties (metadata, entity properties)
+* **`EntityFilter`**: Extends `PropertyFilter` to add entity-specific filtering, particularly label-based filtering
+
+====== PropertyFilter
+
+The `PropertyFilter` sealed class hierarchy provides type-safe filter expressions for map-based properties:
+
+[cols="1,2,2"]
+|===
+|Filter Type |Description |Example
+
+|`Eq`
+|Equals
+|`PropertyFilter.eq("owner", "alice")`
+
+|`Ne`
+|Not equals
+|`PropertyFilter.ne("status", "deleted")`
+
+|`Gt`, `Gte`
+|Greater than (or equal)
+|`PropertyFilter.gte("score", 0.8)`
+
+|`Lt`, `Lte`
+|Less than (or equal)
+|`PropertyFilter.lt("priority", 5)`
+
+|`In`
+|Value in list
+|`PropertyFilter.in("category", "tech", "science")`
+
+|`Nin`
+|Value not in list
+|`PropertyFilter.nin("status", "deleted", "archived")`
+
+|`Contains`
+|String contains substring
+|`PropertyFilter.contains("tags", "important")`
+
+|`And`
+|Logical AND
+|`PropertyFilter.and(filter1, filter2)`
+
+|`Or`
+|Logical OR
+|`PropertyFilter.or(filter1, filter2)`
+
+|`Not`
+|Logical NOT
+|`PropertyFilter.not(filter)`
+|===
+
+====== EntityFilter
+
+`EntityFilter` extends `PropertyFilter` to add entity-specific filtering. Currently, it adds label-based filtering via `HasAnyLabel`:
+
+[cols="1,2,2"]
+|===
+|Filter Type |Description |Example
+
+|`HasAnyLabel`
+|Matches entities with any of the specified labels
+|`EntityFilter.hasAnyLabel("Person", "Organization")`
+|===
+
+`HasAnyLabel` is particularly useful for:
+
+* **Type-safe entity searches**: Filter results to only include specific entity types
+* **Multi-type queries**: Search across multiple entity types in one query
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+import com.embabel.agent.rag.filter.EntityFilter;
+import com.embabel.agent.rag.filter.PropertyFilter;
+
+// Filter by single label
+EntityFilter personFilter = EntityFilter.hasAnyLabel("Person");
+
+// Filter by multiple labels (OR semantics - entity must have ANY of these labels)
+EntityFilter entityFilter = EntityFilter.hasAnyLabel("Person", "Organization");
+
+// Combine HasAnyLabel with property filters using fluent API
+PropertyFilter simpleCombo = EntityFilter.hasAnyLabel("Person")
+    .and(PropertyFilter.eq("status", "active"));
+
+// Multiple conditions
+PropertyFilter complexFilter = EntityFilter.hasAnyLabel("Person")
+    .and(PropertyFilter.eq("status", "active"))
+    .and(PropertyFilter.gte("score", 0.8));
+
+// OR combinations
+PropertyFilter orFilter = EntityFilter.hasAnyLabel("Person")
+    .or(PropertyFilter.eq("fallback", true));
+
+// With negation
+PropertyFilter notDeleted = EntityFilter.hasAnyLabel("Person")
+    .and(PropertyFilter.not(PropertyFilter.eq("status", "deleted")));
+
+// Complex grouping
+PropertyFilter accessFilter = PropertyFilter.or(
+    PropertyFilter.and(
+        EntityFilter.hasAnyLabel("Person", "Employee"),
+        PropertyFilter.eq("active", true)
+    ),
+    PropertyFilter.eq("role", "admin")
+);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+import com.embabel.agent.rag.filter.EntityFilter
+import com.embabel.agent.rag.filter.PropertyFilter.Companion.eq
+import com.embabel.agent.rag.filter.PropertyFilter.Companion.gte
+
+// Filter by single label
+val personFilter = EntityFilter.hasAnyLabel("Person")
+
+// Filter by multiple labels (OR semantics - entity must have ANY of these labels)
+val entityFilter = EntityFilter.hasAnyLabel("Person", "Organization")
+
+// Combine HasAnyLabel with property filters using fluent API
+val simpleCombo = EntityFilter.hasAnyLabel("Person") and eq("status", "active")
+
+// Multiple conditions
+val complexFilter = EntityFilter.hasAnyLabel("Person") and
+    eq("status", "active") and
+    gte("score", 0.8)
+
+// OR combinations
+val orFilter = EntityFilter.hasAnyLabel("Person") or eq("fallback", true)
+
+// With negation
+val notDeleted = EntityFilter.hasAnyLabel("Person") and !eq("status", "deleted")
+
+// Complex grouping
+val accessFilter = (EntityFilter.hasAnyLabel("Person", "Employee") and eq("active", true)) or
+    eq("role", "admin")
+----
+====
+
+Since `EntityFilter` extends `PropertyFilter`, all filter types share the same `and`, `or`, `not` operators and can be freely combined.
+
+NOTE: `EntityFilter.HasAnyLabel` is typically handled via in-memory filtering as most vector stores don't have native label support. When using Neo4j backends, labels can be translated to native Cypher label predicates for optimal performance.
+
+[IMPORTANT]
+====
+**Limitation: Nested Properties Not Supported**
+
+Filters currently operate on top-level properties only. Nested property paths like `"address.city"` or `"metadata.source"` are **not** supported.
+The filter key must match a direct key in the metadata map or a top-level property on the entity object.
+
+For example:
+
+- `PropertyFilter.eq("owner", "alice")` - **Supported**: filters on top-level `owner` property
+- `PropertyFilter.eq("address.city", "London")` - **Not supported**: nested path will not match
+====
+
+====== Kotlin Operator Syntax
+
+Kotlin users can use operator and infix functions for a more natural DSL syntax:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+import com.embabel.agent.rag.filter.PropertyFilter;
+
+// Simple filter with not operator
+PropertyFilter notDeleted = PropertyFilter.not(PropertyFilter.eq("status", "deleted"));
+
+// Combine with 'and' and 'or'
+PropertyFilter userAccess = PropertyFilter.and(
+    PropertyFilter.eq("owner", userId),
+    PropertyFilter.gte("confidenceScore", 0.7)
+);
+
+// Complex expressions with grouping
+PropertyFilter accessFilter = PropertyFilter.or(
+    PropertyFilter.and(
+        PropertyFilter.eq("owner", userId),
+        PropertyFilter.ne("status", "deleted")
+    ),
+    PropertyFilter.eq("role", "admin")
+);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+import com.embabel.agent.rag.filter.PropertyFilter.Companion.eq
+import com.embabel.agent.rag.filter.PropertyFilter.Companion.gte
+import com.embabel.agent.rag.filter.PropertyFilter.Companion.ne
+
+// Simple filter with not operator
+val notDeleted = !eq("status", "deleted")
+
+// Combine with infix 'and' and 'or'
+val userAccess = eq("owner", userId) and gte("confidenceScore", 0.7)
+
+// Complex expressions with grouping
+val accessFilter = (eq("owner", userId) and ne("status", "deleted")) or
+    eq("role", "admin")
+----
+====
+
+====== Metadata vs Entity Filters
+
+`ToolishRag` accepts two separate filter parameters:
+
+- **`metadataFilter`**: A `PropertyFilter` that filters on the `metadata` map of `Datum` objects. Metadata is typically ingestion-time information like source URI, ingestion date, owner ID, etc.
+- **`entityFilter`**: An `EntityFilter` that filters on entity properties and labels. For `NamedEntityData`, this filters on the `properties` map and `labels()`. For typed entities, reflection is used to access top-level fields.
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// Filter on metadata (e.g., which user owns the document)
+PropertyFilter metadataFilter = PropertyFilter.eq("ownerId", currentUserId);
+
+// Filter on entity labels and properties
+EntityFilter entityFilter = EntityFilter.hasAnyLabel("Person");
+
+// Apply both filters
+ToolishRag scopedRag = toolishRag
+    .withMetadataFilter(metadataFilter)
+    .withEntityFilter(entityFilter);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// Filter on metadata (e.g., which user owns the document)
+val metadataFilter = PropertyFilter.eq("ownerId", currentUserId)
+
+// Filter on entity labels and properties (combine label filtering with property filtering)
+val entityFilter = EntityFilter.hasAnyLabel("Person") and PropertyFilter.eq("status", "active")
+
+// Apply both filters
+val scopedRag = toolishRag
+    .withMetadataFilter(metadataFilter)
+    .withEntityFilter(entityFilter)
+----
+====
+
+In most cases, you'll use metadata filters for access control and entity filters for type-based and business logic filtering.
+
+===== Neo4j Cypher Filtering
+
+When using Neo4j via the Drivine module, metadata filters are automatically converted to Cypher WHERE clauses using `CypherFilterConverter`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// The filter is converted to Cypher WHERE clause automatically
+PropertyFilter filter = PropertyFilter.and(
+    PropertyFilter.eq("owner", "alice"),
+    PropertyFilter.gte("confidenceScore", 0.7)
+);
+
+// In DrivineNamedEntityDataRepository:
+List<SimilarityResult<T>> results = repository.vectorSearch(request, filter);
+// Generates: WHERE (e.owner = $_filter_0) AND (e.confidenceScore >= $_filter_1) AND ...
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// The filter is converted to Cypher WHERE clause automatically
+val filter = eq("owner", "alice") and gte("confidenceScore", 0.7)
+
+// In DrivineNamedEntityDataRepository:
+val results = repository.vectorSearch(request, metadataFilter = filter)
+// Generates: WHERE (e.owner = $_filter_0) AND (e.confidenceScore >= $_filter_1) AND ...
+----
+====
+
+The converter produces parameterized queries for safety and handles all filter types including nested logical expressions.
+
+For both `DrivineStore` (chunks) and `DrivineNamedEntityDataRepository` (named entities), **both** metadata and property filters are translated to native Cypher WHERE clauses. This is because Neo4j stores all data as node properties - metadata is simply the set of properties that aren't core fields like `id`, `text`, `parentId`, etc. This provides optimal performance by filtering at the database level rather than in-memory.
+
+====== Basic Usage
+
+Apply a metadata filter to scope all searches to a specific owner:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// Create a filter for the current user
+PropertyFilter ownerFilter = PropertyFilter.eq("ownerId", currentUserId);
+
+// Apply to ToolishRag - all searches will be filtered
+ToolishRag scopedRag = toolishRag.withMetadataFilter(ownerFilter);
+
+// Use in LLM call - LLM cannot see or bypass the filter
+context.ai()
+    .withReference(scopedRag)
+    .respondWithSystemPrompt(conversation, Map.of());
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// Create a filter for the current user
+val ownerFilter = PropertyFilter.eq("ownerId", currentUserId)
+
+// Apply to ToolishRag - all searches will be filtered
+val scopedRag = toolishRag.withMetadataFilter(ownerFilter)
+
+// Use in LLM call - LLM cannot see or bypass the filter
+context.ai()
+    .withReference(scopedRag)
+    .respondWithSystemPrompt(conversation, emptyMap())
+----
+====
+
+====== Complex Filters
+
+Combine filters for more sophisticated access control:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// User can access their own documents OR documents in their departments
+PropertyFilter accessFilter = PropertyFilter.or(
+    PropertyFilter.eq("ownerId", currentUserId),
+    PropertyFilter.in("departmentId", userDepartmentIds)
+);
+
+ToolishRag scopedRag = toolishRag.withMetadataFilter(accessFilter);
+
+// Organization-scoped with status restriction
+PropertyFilter orgFilter = PropertyFilter.and(
+    PropertyFilter.eq("orgId", currentOrgId),
+    PropertyFilter.ne("status", "deleted"),
+    PropertyFilter.gte("confidenceScore", 0.7)
+);
+
+ToolishRag scopedRag2 = toolishRag.withMetadataFilter(orgFilter);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// User can access their own documents OR documents in their departments
+val accessFilter = eq("ownerId", currentUserId) or
+    PropertyFilter.`in`("departmentId", *userDepartmentIds.toTypedArray())
+
+val scopedRag = toolishRag.withMetadataFilter(accessFilter)
+
+// Organization-scoped with status restriction
+val orgFilter = eq("orgId", currentOrgId) and
+    ne("status", "deleted") and
+    gte("confidenceScore", 0.7)
+
+val scopedRag2 = toolishRag.withMetadataFilter(orgFilter)
+----
+====
+
+====== Per-Request Scoping Pattern
+
+A common pattern is to create a scoped `ToolishRag` per request in a web application:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Action(trigger = UserMessage.class)
+void respond(Conversation conversation, ActionContext context) {
+    // Get current user from security context
+    String userId = SecurityContextHolder.getContext()
+        .getAuthentication().getName();
+
+    // Create user-scoped RAG for this request
+    ToolishRag userScopedRag = toolishRag.withMetadataFilter(
+        PropertyFilter.eq("ownerId", userId)
+    );
+
+    context.ai()
+        .withReference(userScopedRag)
+        .rendering("assistant")
+        .respondWithSystemPrompt(conversation, Map.of());
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Action(trigger = UserMessage::class)
+fun respond(conversation: Conversation, context: ActionContext) {
+    // Get current user from security context
+    val userId = SecurityContextHolder.getContext()
+        .authentication.name
+
+    // Create user-scoped RAG for this request
+    val userScopedRag = toolishRag.withMetadataFilter(
+        PropertyFilter.eq("ownerId", userId)
+    )
+
+    context.ai()
+        .withReference(userScopedRag)
+        .rendering("assistant")
+        .respondWithSystemPrompt(conversation, emptyMap())
+}
+----
+====
+
+====== Backend Implementation
+
+Filters are applied at different levels depending on the backend:
+
+- **Spring AI VectorStore**: Metadata filters are translated to `Filter.Expression` for native filtering; entity filters (including `HasAnyLabel`) are applied in-memory
+- **Neo4j (Drivine)**: Both metadata and entity filters (including `HasAnyLabel`) are translated to native Cypher WHERE clauses and label predicates (optimal performance)
+- **Lucene**: Both filter types are applied as post-filters with inflated `topK` to compensate for filtered-out results
+- **Custom stores**: Can implement `FilteringVectorSearch` / `FilteringTextSearch` for native translation, or fall back to in-memory filtering
+
+The `InMemoryPropertyFilter` utility class provides fallback filtering for any store implementation:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// In your SearchOperations implementation
+List<SimilarityResult<T>> results = performSearch(request);
+return InMemoryPropertyFilter.filterResults(results, metadataFilter, entityFilter);
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// In your SearchOperations implementation
+val results = performSearch(request)
+return InMemoryPropertyFilter.filterResults(results, metadataFilter, entityFilter)
+----
+====
+
+For `EntityFilter.HasAnyLabel`, the in-memory filter checks if the entity has any of the specified labels via `NamedEntityData.labels()`.
+
+This ensures filtering works across all backends, with native optimization for metadata filters where available.
+
+==== Ingestion
+
+===== Document Parsing with Tika
+
+Embabel Agent uses Apache Tika for document parsing. `TikaHierarchicalContentReader` reads various formats (Markdown, HTML, PDF, Word, etc.) and extracts a hierarchical structure:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@ShellMethod("Ingest URL or file path")
+String ingest(@ShellOption(defaultValue = "./data/document.md") String location) {
+    var uri = location.startsWith("http://") || location.startsWith("https://")
+            ? location
+            : Path.of(location).toAbsolutePath().toUri().toString();
+    var ingested = NeverRefreshExistingDocumentContentPolicy.INSTANCE
+            .ingestUriIfNeeded(
+                    luceneSearchOperations,
+                    new TikaHierarchicalContentReader(),
+                    uri
+            );
+    return ingested != null ?
+            "Ingested document with ID: " + ingested :
+            "Document already exists, no ingestion performed.";
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@ShellMethod("Ingest URL or file path")
+fun ingest(@ShellOption(defaultValue = "./data/document.md") location: String): String {
+    val uri = if (location.startsWith("http://") || location.startsWith("https://")) {
+        location
+    } else {
+        Path.of(location).toAbsolutePath().toUri().toString()
+    }
+    val ingested = NeverRefreshExistingDocumentContentPolicy.INSTANCE
+        .ingestUriIfNeeded(
+            luceneSearchOperations,
+            TikaHierarchicalContentReader(),
+            uri
+        )
+    return if (ingested != null) {
+        "Ingested document with ID: $ingested"
+    } else {
+        "Document already exists, no ingestion performed."
+    }
+}
+----
+====
+
+===== Chunking Configuration
+
+Content is split into chunks with configurable parameters:
+
+[source,yaml]
+----
+ragbot:
+  chunker-config:
+    max-chunk-size: 800
+    overlap-size: 100
+----
+
+Configuration options:
+
+- `maxChunkSize` - Maximum characters per chunk (default: 1500)
+- `overlapSize` - Character overlap between consecutive chunks (default: 200)
+- `includeSectionTitleInChunk` - Include section title in chunk text (default: true)
+
+===== Chunk Transformation
+
+When chunks are created from documents, they often lack the context needed for effective retrieval.
+A chunk containing "This approach improves performance by 40%" is not useful unless the reader knows what "this approach" refers to.
+The `ChunkTransformer` interface allows you to enrich chunks with additional context before they are indexed.
+
+====== The urtext Field
+
+Every `Chunk` has two text fields:
+
+- `text` - The indexed content, which may be transformed with additional context
+- `urtext` - The original, unmodified chunk text
+
+The `urtext` field preserves the original content for accurate citations.
+When displaying search results to users, use `urtext` to show exactly what appeared in the source document, while using the enriched `text` for vector embeddings and search.
+
+====== AddTitlesChunkTransformer
+
+The recommended default transformer is `AddTitlesChunkTransformer`, which prepends document and section titles to each chunk:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Bean
+ChunkTransformer chunkTransformer() {
+    return AddTitlesChunkTransformer.INSTANCE;
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Bean
+fun chunkTransformer(): ChunkTransformer {
+    return AddTitlesChunkTransformer.INSTANCE
+}
+----
+====
+
+This transforms a chunk like:
+
+----
+This approach improves performance by 40% compared to the baseline.
+----
+
+Into:
+
+----
+# Title: Performance Optimization Guide
+# URI: https://docs.example.com/performance
+# Section: Caching Strategies
+
+This approach improves performance by 40% compared to the baseline.
+----
+
+Now the chunk carries its context, improving both retrieval accuracy and LLM understanding.
+
+====== Custom Transformers
+
+You can create custom transformers by implementing `ChunkTransformer` or extending `AbstractChunkTransformer`:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public class MetadataEnrichingTransformer extends AbstractChunkTransformer {
+
+    @Override
+    public Map<String, Object> additionalMetadata(
+            Chunk chunk,
+            ChunkTransformationContext context) {
+        return Map.of(
+            "documentType", context.getDocument().getMetadata().get("type"),
+            "lastModified", Instant.now().toString()
+        );
+    }
+
+    @Override
+    public String newText(Chunk chunk, ChunkTransformationContext context) {
+        // Optionally modify the text
+        return chunk.getText();
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+class MetadataEnrichingTransformer : AbstractChunkTransformer() {
+
+    override fun additionalMetadata(
+        chunk: Chunk,
+        context: ChunkTransformationContext
+    ): Map<String, Any> {
+        return mapOf(
+            "documentType" to context.document?.metadata?.get("type"),
+            "lastModified" to Instant.now().toString()
+        )
+    }
+
+    override fun newText(chunk: Chunk, context: ChunkTransformationContext): String {
+        // Optionally modify the text
+        return chunk.text
+    }
+}
+----
+====
+
+The `ChunkTransformationContext` provides access to:
+
+- `section` - The `Section` containing this chunk
+- `document` - The `ContentRoot` (may be null for orphan sections)
+
+====== Chaining Transformers
+
+Use `ChainedChunkTransformer` to apply multiple transformations in sequence:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Bean
+ChunkTransformer chunkTransformer() {
+    return new ChainedChunkTransformer(List.of(
+        AddTitlesChunkTransformer.INSTANCE,
+        new MetadataEnrichingTransformer(),
+        new CustomCleanupTransformer()
+    ));
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Bean
+fun chunkTransformer(): ChunkTransformer {
+    return ChainedChunkTransformer(listOf(
+        AddTitlesChunkTransformer.INSTANCE,
+        MetadataEnrichingTransformer(),
+        CustomCleanupTransformer()
+    ))
+}
+----
+====
+
+Transformers are applied in order, with each receiving the output of the previous transformer.
+
+====== Configuring the Store
+
+Pass your `ChunkTransformer` to the store implementation:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@DependsOn("onnxEmbeddingInitializer")  // <1>
+@Bean
+DrivineStore drivineStore(
+        PersistenceManager persistenceManager,
+        EmbeddingService embeddingService,
+        ChunkTransformer chunkTransformer,  // <2>
+        MyProperties properties) {
+    return new DrivineStore(
+        persistenceManager,
+        properties.neoRag(),
+        properties.chunkerConfig(),
+        chunkTransformer,  // <3>
+        embeddingService,
+        platformTransactionManager,
+        new DrivineCypherSearch(persistenceManager)
+    );
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@DependsOn("onnxEmbeddingInitializer")  // <1>
+@Bean
+fun drivineStore(
+    persistenceManager: PersistenceManager,
+    embeddingService: EmbeddingService,
+    chunkTransformer: ChunkTransformer,  // <2>
+    properties: MyProperties
+): DrivineStore {
+    return DrivineStore(
+        persistenceManager,
+        properties.neoRag(),
+        properties.chunkerConfig(),
+        chunkTransformer,  // <3>
+        embeddingService,
+        platformTransactionManager,
+        DrivineCypherSearch(persistenceManager)
+    )
+}
+----
+====
+
+<1> Ensure the `EmbeddingService` bean is registered before this configuration is wired (see note below)
+<2> Inject the `ChunkTransformer` bean
+<3> Pass it to the store constructor
+
+NOTE: `EmbeddingService` beans are registered dynamically by model provider auto-configurations via `registerSingleton`.
+If your `@Configuration` class injects `EmbeddingService` directly (as above), you should add `@DependsOn` on the provider's initializer bean — e.g. `@DependsOn("onnxEmbeddingInitializer")` for the ONNX provider.
+Without it, Spring may resolve the dependency before the initializer has run, resulting in a `NoSuchBeanDefinitionException`.
+This is only necessary when consuming model beans directly; framework beans like `ModelProvider` handle this internally.
+
+TIP: For most use cases, `AddTitlesChunkTransformer` is all you need.
+It adds essential context that significantly improves retrieval quality without adding complexity.
+
+===== Using Docling for Markdown Conversion
+
+While we believe that you should write your Gen AI *applications* in Java or Kotlin, ingestion is more in the realm of data science, and Python is indisputably strong in this area.
+
+For complex documents like PDFs, consider using https://github.com/DS4SD/docling[Docling] to convert to Markdown first:
+
+[source,bash]
+----
+docling https://example.com/document.pdf --from pdf --to md --output ./data
+----
+
+Markdown is easier to parse hierarchically and produces better chunks than raw PDF extraction.
+
+==== Supported Stores
+
+Embabel Agent provides several RAG store implementations:
+
+===== Lucene (embabel-agent-rag-lucene)
+
+Full-featured store with vector search, text search, and result expansion.
+Supports both in-memory and file-based persistence:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+@Bean
+LuceneSearchOperations luceneSearchOperations(
+        ModelProvider modelProvider,
+        RagbotProperties properties) {
+    var embeddingService = modelProvider.getEmbeddingService(
+            DefaultModelSelectionCriteria.INSTANCE);
+    return LuceneSearchOperations
+            .withName("docs")
+            .withEmbeddingService(embeddingService)
+            .withChunkerConfig(properties.chunkerConfig())
+            .withIndexPath(Paths.get("./.lucene-index"))  // File persistence
+            .buildAndLoadChunks();
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+@Bean
+fun luceneSearchOperations(
+    modelProvider: ModelProvider,
+    properties: RagbotProperties
+): LuceneSearchOperations {
+    val embeddingService = modelProvider.getEmbeddingService(
+        DefaultModelSelectionCriteria.INSTANCE
+    )
+    return LuceneSearchOperations
+        .withName("docs")
+        .withEmbeddingService(embeddingService)
+        .withChunkerConfig(properties.chunkerConfig())
+        .withIndexPath(Paths.get("./.lucene-index"))  // File persistence
+        .buildAndLoadChunks()
+}
+----
+====
+
+Omit `.withIndexPath()` for in-memory only storage.
+
+===== Neo4j
+
+Graph database store for RAG (available in separate modules `embabel-agent-rag-neo-drivine` and `embabel-agent-rag-neo-ogm`).
+Ideal when you need graph relationships between content elements.
+
+===== PostgreSQL pgvector (embabel-rag-pgvector)
+
+PostgreSQL-based RAG store using the pgvector extension (available in the separate `embabel/embabel-rag-pgvector` repository).
+Supports hybrid search combining vector similarity, full-text search via tsvector/tsquery, and fuzzy matching via pg_trgm.
+Ideal when you already use PostgreSQL and want a familiar, battle-tested database for RAG.
+
+===== Spring AI VectorStore (SpringVectorStoreVectorSearch)
+
+Adapter that wraps any Spring AI `VectorStore`, enabling use of any vector database Spring AI supports:
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+public class SpringVectorStoreVectorSearch implements VectorSearch {
+    private final VectorStore vectorStore;
+
+    public SpringVectorStoreVectorSearch(VectorStore vectorStore) {
+        this.vectorStore = vectorStore;
+    }
+
+    @Override
+    public <T extends Retrievable> List<SimilarityResult<T>> vectorSearch(
+            TextSimilaritySearchRequest request,
+            Class<T> clazz) {
+        SearchRequest searchRequest = SearchRequest
+            .builder()
+            .query(request.getQuery())
+            .similarityThreshold(request.getSimilarityThreshold())
+            .topK(request.getTopK())
+            .build();
+        List<Document> results = vectorStore.similaritySearch(searchRequest);
+        // ... convert results
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+class SpringVectorStoreVectorSearch(
+    private val vectorStore: VectorStore,
+) : VectorSearch {
+    override fun <T : Retrievable> vectorSearch(
+        request: TextSimilaritySearchRequest,
+        clazz: Class<T>,
+    ): List<SimilarityResult<T>> {
+        val searchRequest = SearchRequest
+            .builder()
+            .query(request.query)
+            .similarityThreshold(request.similarityThreshold)
+            .topK(request.topK)
+            .build()
+        val results = vectorStore.similaritySearch(searchRequest)
+        // ... convert results
+    }
+}
+----
+====
+
+This allows integration with Pinecone, Weaviate, Milvus, Chroma, and other stores via Spring AI.
+
+==== Implementing Your Own RAG Store
+
+To implement a custom RAG store, implement only the `SearchOperations` subinterfaces that are natural and efficient for your store.
+This is a key design principle: **stores should only implement what they can do well**.
+
+For example:
+
+- A **vector database** like Pinecone might implement only `VectorSearch` since that's its strength
+- A **full-text search engine** might implement `TextSearch` and `RegexSearchOperations`
+- A **hierarchical document store** might add `ResultExpander` for context expansion
+- A **full-featured store** like Lucene can implement all interfaces
+
+The `ToolishRag` facade automatically exposes only the tools that your store supports.
+This means you don't need to provide stub implementations or throw "not supported" exceptions—simply don't implement interfaces that don't fit your store's capabilities.
+
+[tabs]
+====
+Java::
++
+[source,java]
+----
+// A store that only supports vector search
+public class MyVectorOnlyStore implements VectorSearch {
+    @Override
+    public <T extends Retrievable> List<SimilarityResult<T>> vectorSearch(
+            TextSimilaritySearchRequest request,
+            Class<T> clazz) {
+        // Implement vector similarity search
+    }
+}
+
+// A store that supports both vector and text search
+public class MyFullTextStore implements VectorSearch, TextSearch {
+    @Override
+    public <T extends Retrievable> List<SimilarityResult<T>> vectorSearch(
+            TextSimilaritySearchRequest request,
+            Class<T> clazz) {
+        // Implement vector similarity search
+    }
+
+    @Override
+    public <T extends Retrievable> List<SimilarityResult<T>> textSearch(
+            TextSimilaritySearchRequest request,
+            Class<T> clazz) {
+        // Implement full-text search
+    }
+
+    @Override
+    public String getLuceneSyntaxNotes() {
+        return "Full Lucene syntax supported";
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin]
+----
+// A store that only supports vector search
+class MyVectorOnlyStore : VectorSearch {
+    override fun <T : Retrievable> vectorSearch(
+        request: TextSimilaritySearchRequest,
+        clazz: Class<T>,
+    ): List<SimilarityResult<T>> {
+        // Implement vector similarity search
+    }
+}
+
+// A store that supports both vector and text search
+class MyFullTextStore : VectorSearch, TextSearch {
+    override fun <T : Retrievable> vectorSearch(
+        request: TextSimilaritySearchRequest,
+        clazz: Class<T>,
+    ): List<SimilarityResult<T>> {
+        // Implement vector similarity search
+    }
+
+    override fun <T : Retrievable> textSearch(
+        request: TextSimilaritySearchRequest,
+        clazz: Class<T>,
+    ): List<SimilarityResult<T>> {
+        // Implement full-text search
+    }
+
+    override val luceneSyntaxNotes: String = "Full Lucene syntax supported"
+}
+----
+====
+
+For ingestion support, extend `ChunkingContentElementRepository` to handle document storage and chunking.
+
+==== Complete Example
+
+See the https://github.com/embabel/rag-demo[rag-demo] project for a complete working example including:
+
+- Lucene-based RAG store configuration
+- Document ingestion via Tika
+- Chatbot with RAG-powered responses
+- Jinja prompt templates for system prompts
+- Spring Shell commands for interactive testing
+

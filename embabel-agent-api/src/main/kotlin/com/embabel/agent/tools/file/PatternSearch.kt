@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,23 +15,21 @@
  */
 package com.embabel.agent.tools.file
 
+import com.embabel.agent.api.annotation.LlmTool
+import com.embabel.agent.api.common.Asyncer
 import com.embabel.agent.tools.DirectoryBased
 import com.embabel.common.util.loggerFor
-import org.springframework.ai.tool.annotation.Tool
-import org.springframework.ai.tool.annotation.ToolParam
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.concurrent.thread
 
 /**
  * Adds low level pattern search methods to the [com.embabel.agent.tools.DirectoryBased] interface
  */
 interface PatternSearch : DirectoryBased {
 
-    @Tool(description = "search for a regex in the project")
+    @LlmTool(description = "search for a regex in the project")
     fun findPatternInProject(
-        @ToolParam(description = "regex pattern") pattern: String,
-        @ToolParam(description = "glob pattern for files to search in") globPattern: String,
+        @LlmTool.Param(description = "regex pattern") pattern: String,
+        @LlmTool.Param(description = "glob pattern for files to search in") globPattern: String,
     ): String {
         return findPatternInProject(
             pattern = Regex(pattern),
@@ -40,24 +38,24 @@ interface PatternSearch : DirectoryBased {
     }
 
     /**
-     * Finds files containing the specified pattern using glob patterns
+     * Finds files containing the specified pattern using glob patterns.
+     *
      * @param pattern The regex pattern to search for
      * @param globPattern Glob pattern to match files
-     * @param useParallelSearch Whether to use parallel processing for faster searching
+     * @param asyncer Optional asyncer for parallel processing. If provided and file count > 100,
+     *                files are processed in parallel using the asyncer's thread pool.
+     *                If null, files are processed sequentially.
      * @return List of matching files with their relevant content snippets
      */
     fun findPatternInProject(
         pattern: Regex,
         globPattern: String,
-        useParallelSearch: Boolean = true,
+        asyncer: Asyncer? = null,
     ): List<PatternMatch> {
         val root = File(root)
         if (!root.exists() || !root.isDirectory) {
             throw IllegalArgumentException("Invalid root directory: $root")
         }
-
-        val results = mutableListOf<PatternMatch>()
-        val cancelled = AtomicBoolean(false)
 
         // Get all files recursively matching the glob pattern
         val allFiles = root.walkTopDown()
@@ -71,31 +69,15 @@ interface PatternSearch : DirectoryBased {
             pattern.pattern
         )
 
-        if (useParallelSearch && allFiles.size > 100) {
-            // For larger projects, process files in parallel
-            val numThreads = Runtime.getRuntime().availableProcessors()
-            val chunks = allFiles.chunked(allFiles.size / numThreads + 1)
-            val threads = chunks.map { chunk ->
-                thread {
-                    val threadResults = mutableListOf<PatternMatch>()
-                    for (file in chunk) {
-                        if (cancelled.get()) break
-                        scanFile(file, pattern)?.let { threadResults.add(it) }
-                    }
-                    synchronized(results) {
-                        results.addAll(threadResults)
-                    }
-                }
-            }
-            threads.forEach { it.join() }
+        return if (asyncer != null && allFiles.size > 100) {
+            // For larger projects, process files in parallel using Asyncer
+            asyncer.parallelMap(allFiles, maxConcurrency = 4) { file ->
+                scanFile(file, pattern)
+            }.filterNotNull()
         } else {
-            // For smaller projects, process sequentially
-            for (file in allFiles) {
-                scanFile(file, pattern)?.let { results.add(it) }
-            }
+            // For smaller projects or when no asyncer, process sequentially
+            allFiles.mapNotNull { file -> scanFile(file, pattern) }
         }
-
-        return results
     }
 
     /**

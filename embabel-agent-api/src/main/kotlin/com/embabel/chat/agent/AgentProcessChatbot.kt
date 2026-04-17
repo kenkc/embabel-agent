@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,23 @@
  */
 package com.embabel.chat.agent
 
-import com.embabel.agent.api.common.SomeOf
-import com.embabel.agent.channel.LoggingOutputChannelEvent
-import com.embabel.agent.channel.OutputChannel
+import com.embabel.agent.api.channel.LoggingOutputChannelEvent
+import com.embabel.agent.api.channel.OutputChannel
+import com.embabel.agent.api.common.PlannerType
+import com.embabel.agent.api.event.AgenticEventListener
+import com.embabel.agent.api.event.progress.OutputChannelHighlightingEventListener
+import com.embabel.agent.api.identity.User
+import com.embabel.agent.api.invocation.UtilityInvocation
 import com.embabel.agent.core.*
-import com.embabel.agent.event.AgenticEventListener
-import com.embabel.agent.event.progress.OutputChannelHighlightingEventListener
-import com.embabel.agent.identity.User
-import com.embabel.chat.*
-import com.embabel.chat.support.InMemoryConversation
-import com.fasterxml.jackson.annotation.JsonPropertyDescription
+import com.embabel.chat.ChatSession
+import com.embabel.chat.Chatbot
+import com.embabel.chat.ChatTrigger
+import com.embabel.chat.Conversation
+import com.embabel.chat.ConversationFactory
+import com.embabel.chat.Message
+import com.embabel.chat.UserMessage
+import com.embabel.chat.support.InMemoryConversationFactory
+import com.embabel.common.util.loggerFor
 
 fun interface AgentSource {
 
@@ -39,22 +46,10 @@ fun interface ListenerProvider {
     ): List<AgenticEventListener>
 }
 
-data class ConversationTermination(
-    @get:JsonPropertyDescription("Reason for conversation termination, e.g. 'user requested end of conversation', or 'conversation unsafe'")
-    val reason: String,
-)
 
 /**
- * Return from a chatbot agent action method
- */
-data class ChatbotReturn(
-    val assistantMessage: AssistantMessage? = null,
-    val conversationTermination: ConversationTermination? = null,
-) : SomeOf
-
-/**
- * Chatbot implementation backed by an AgentProcess
- * The AgentProcess must react to messages and respond on its output channel
+ * Chatbot implementation backed by an ongoing AgentProcess
+ * The AgentProcess must react to UserMessage and respond on its output channel
  * The AgentProcess can assume that the Conversation will be available in the blackboard,
  * and the latest UserMessage.
  * Action methods will often take precondition being that the last event
@@ -63,69 +58,108 @@ data class ChatbotReturn(
  * @param agentPlatform the agent platform to create and manage agent processes
  * @param agentSource factory for agents. The factory is called for each new session.
  * This allows lazy loading and more flexible usage patterns
+ * @param conversationFactory factory for creating conversations. Defaults to in-memory.
+ * For persistent storage, inject a StoredConversationFactory from embabel-chat-store.
  */
 class AgentProcessChatbot(
     private val agentPlatform: AgentPlatform,
     private val agentSource: AgentSource,
-    private val listenerProvider: ListenerProvider = ListenerProvider { user, outputChannel -> emptyList() },
+    private val conversationFactory: ConversationFactory = InMemoryConversationFactory(),
+    private val listenerProvider: ListenerProvider = ListenerProvider { _, _ -> emptyList() },
+    private val plannerType: PlannerType = PlannerType.GOAP,
+    private val verbosity: Verbosity = Verbosity(),
 ) : Chatbot {
 
     override fun createSession(
         user: User?,
         outputChannel: OutputChannel,
-        systemMessage: String?,
+        contextId: String?,
+        conversationId: String?,
     ): ChatSession {
+        // Try to load existing conversation if ID provided
+        val existingConversation = conversationId?.let { conversationFactory.load(it) }
+
         val listeners = listenerProvider.listenersFor(user, outputChannel)
         val agentProcess = agentPlatform.createAgentProcess(
             agent = agentSource.resolveAgent(user),
             processOptions = ProcessOptions(
+                contextId = contextId?.let { ContextId(it) },
                 outputChannel = outputChannel,
                 listeners = listeners,
                 identities = Identities(
                     forUser = user,
-                )
+                ),
+                verbosity = verbosity,
+                plannerType = plannerType,
             ),
             bindings = emptyMap(),
         )
-        // We don't yet start the process. It will be started when the first message is received
-        return AgentProcessChatSession(agentProcess)
+
+        // Bind existing conversation to process, or let session create new one
+        if (existingConversation != null) {
+            agentProcess.bindProtected(AgentProcessChatSession.CONVERSATION_KEY, existingConversation)
+        }
+
+        // We start the AgentProcess. It's likely to do nothing until
+        // we receive a UserMessage, but that's fine as we may want to do some
+        // work in the meantime
+        return AgentProcessChatSession(
+            agentProcess = agentProcess,
+            conversationFactory = conversationFactory,
+            conversationId = conversationId,
+        ).apply {
+            agentProcess.run()
+        }
     }
 
     override fun findSession(conversationId: String): ChatSession? {
         return agentPlatform.getAgentProcess(conversationId)?.let { agentProcess ->
-            AgentProcessChatSession(agentProcess)
+            AgentProcessChatSession(agentProcess, conversationFactory)
         }
     }
 
     companion object {
 
         /**
-         * Create a chatbot with the given agent. The agent is looked up by name from the agent platform.
-         * @param agentPlatform the agent platform to create and manage agent processes
-         * @param agentName the name of the agent to
-         * @param listenerProvider provider for contextual event listeners
+         * Create a chatbot that will use all actions available on the platform,
+         * with utility-based planning.
+         *
+         * @param agentPlatform the agent platform
+         * @param conversationFactory factory for creating conversations. Defaults to in-memory.
+         * @param verbosity verbosity settings for debugging
+         * @param listenerProvider provider for event listeners
          */
         @JvmStatic
         @JvmOverloads
-        fun withAgentByName(
+        fun utilityFromPlatform(
             agentPlatform: AgentPlatform,
-            agentName: String,
+            conversationFactory: ConversationFactory = InMemoryConversationFactory(),
+            verbosity: Verbosity = Verbosity(),
             listenerProvider: ListenerProvider = ListenerProvider { _, outputChannel ->
                 listOf(OutputChannelHighlightingEventListener(outputChannel))
             },
-        ): Chatbot = AgentProcessChatbot(agentPlatform, {
-            agentPlatform.agents().find { it.name == agentName }
-                ?: throw IllegalArgumentException("No agent found with name $agentName")
-        }, listenerProvider)
+        ): Chatbot = AgentProcessChatbot(
+            agentPlatform = agentPlatform,
+            agentSource = {
+                UtilityInvocation.on(agentPlatform).createPlatformAgent()
+            },
+            conversationFactory = conversationFactory,
+            listenerProvider = listenerProvider,
+            verbosity = verbosity,
+            plannerType = PlannerType.UTILITY,
+        )
     }
 
 }
 
 /**
- * Many instances for one AgentProcess
+ * Many instances for one AgentProcess.
+ * Stores conversation in AgentProcess blackboard.
  */
-private class AgentProcessChatSession(
+internal class AgentProcessChatSession(
     private val agentProcess: AgentProcess,
+    private val conversationFactory: ConversationFactory,
+    private val conversationId: String? = null,
 ) : ChatSession {
 
     override val processId: String = agentProcess.id
@@ -135,20 +169,22 @@ private class AgentProcessChatSession(
     override val outputChannel: OutputChannel
         get() = agentProcess.processContext.outputChannel
 
-    override val conversation = run {
-        agentProcess[KEY] as? Conversation
+    override val conversation: Conversation = run {
+        // Check if conversation was pre-loaded (restored from storage)
+        agentProcess[CONVERSATION_KEY] as? Conversation
             ?: run {
-                val conversation = InMemoryConversation(id = agentProcess.id)
-                agentProcess[KEY] = conversation
-                conversation.also {
-                    agentProcess.processContext.outputChannel.send(
-                        LoggingOutputChannelEvent(
-                            processId = agentProcess.id,
-                            message = "Started chat session `${conversation.id}`",
-                            level = LoggingOutputChannelEvent.Level.DEBUG,
-                        )
+                // Create new conversation, preferring the caller-provided conversationId
+                // over the agentProcess.id (which is a moby name like "gracious_turing")
+                val conversation = conversationFactory.create(conversationId ?: agentProcess.id)
+                agentProcess.bindProtected(CONVERSATION_KEY, conversation)
+                agentProcess.processContext.outputChannel.send(
+                    LoggingOutputChannelEvent(
+                        processId = agentProcess.id,
+                        message = "Started chat session `${conversation.id}`",
+                        level = LoggingOutputChannelEvent.Level.DEBUG,
                     )
-                }
+                )
+                conversation
             }
     }
 
@@ -158,12 +194,27 @@ private class AgentProcessChatSession(
     override fun onUserMessage(
         userMessage: UserMessage,
     ) {
-        conversation.addMessage(userMessage)
-        agentProcess.addObject(userMessage)
-        agentProcess.run()
+        onEvent(userMessage)
+    }
+
+    override fun onTrigger(trigger: ChatTrigger) {
+        onEvent(trigger)
+    }
+
+    private fun onEvent(event: Any) {
+        if (event is Message) {
+            conversation.addMessage(event)
+        }
+        agentProcess.addObject(event)
+        val agentProcessRun = agentProcess.run()
+        loggerFor<AgentProcessChatSession>().debug(
+            "Agent process {} run completed with status {}",
+            agentProcess.id,
+            agentProcessRun.status,
+        )
     }
 
     companion object {
-        const val KEY = "conversation"
+        const val CONVERSATION_KEY = "conversation"
     }
 }

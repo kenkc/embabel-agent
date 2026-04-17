@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package com.embabel.agent.core
 
 import com.embabel.common.core.types.Named
 import com.embabel.common.core.types.NamedAndDescribed
-import com.embabel.plan.goap.GoapStep
+import com.embabel.plan.common.condition.ConditionStep
 
 /**
  * Named operation in agent system: Action, Goal or Condition
@@ -25,7 +25,7 @@ import com.embabel.plan.goap.GoapStep
 sealed interface Operation : Named
 
 
-interface AgentSystemStep : GoapStep, NamedAndDescribed, Operation {
+interface AgentSystemStep : ConditionStep, NamedAndDescribed, Operation {
 
     /**
      * Data inputs to this step.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,25 +17,29 @@ package com.embabel.agent.core.support
 
 import com.embabel.agent.api.annotation.AchievesGoal
 import com.embabel.agent.api.annotation.Action
-import com.embabel.agent.api.annotation.confirm
 import com.embabel.agent.api.annotation.support.AgentMetadataReader
-import com.embabel.agent.api.annotation.waitFor
 import com.embabel.agent.api.common.StuckHandler
 import com.embabel.agent.api.common.StuckHandlerResult
 import com.embabel.agent.api.common.StuckHandlingResultCode
 import com.embabel.agent.api.dsl.Frog
 import com.embabel.agent.api.dsl.agent
 import com.embabel.agent.api.dsl.evenMoreEvilWizard
-import com.embabel.agent.core.*
+import com.embabel.agent.api.event.ObjectAddedEvent
+import com.embabel.agent.api.event.ObjectBoundEvent
+import com.embabel.agent.core.Agent
+import com.embabel.agent.core.AgentProcess
+import com.embabel.agent.core.AgentProcessStatusCode
+import com.embabel.agent.core.IoBinding
+import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.core.hitl.ConfirmationRequest
+import com.embabel.agent.core.hitl.confirm
+import com.embabel.agent.core.hitl.waitFor
 import com.embabel.agent.domain.io.UserInput
-import com.embabel.agent.domain.library.Person
-import com.embabel.agent.event.ObjectAddedEvent
-import com.embabel.agent.event.ObjectBoundEvent
+import com.embabel.agent.spi.support.DefaultPlannerFactory
 import com.embabel.agent.support.Dog
 import com.embabel.agent.support.SimpleTestAgent
-import com.embabel.agent.testing.common.EventSavingAgenticEventListener
-import com.embabel.agent.testing.integration.IntegrationTestUtils.dummyPlatformServices
+import com.embabel.agent.test.common.EventSavingAgenticEventListener
+import com.embabel.agent.test.integration.IntegrationTestUtils.dummyPlatformServices
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -43,10 +47,6 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.io.IOException
-
-data class LocalPerson(
-    override val name: String,
-) : Person
 
 @com.embabel.agent.api.annotation.Agent(
     description = "waiting agent",
@@ -124,7 +124,51 @@ val DslWaitingAgent = agent("Waiter", description = "Simple test agent that wait
     goal(name = "done", description = "done", satisfiedBy = Frog::class)
 }
 
+/**
+ * Agent that verifies AgentProcess.get() returns the current process during action execution.
+ */
+val AgentProcessContextTestAgent = agent("ContextTester", description = "Tests AgentProcess.get() availability") {
+    transformation<UserInput, LocalPerson>(name = "check_context") {
+        val currentProcess = AgentProcess.get()
+        requireNotNull(currentProcess) { "AgentProcess.get() should not return null during action execution" }
+        LocalPerson(name = "Context OK: ${it.input.content}")
+    }
+
+    transformation<LocalPerson, Frog>(name = "to_frog") {
+        Frog(it.input.name)
+    }
+
+    goal(name = "frog_goal", description = "Turn input into frog", satisfiedBy = Frog::class)
+}
+
 class SimpleAgentProcessTest {
+
+    @Nested
+    inner class AgentProcessContext {
+
+        @Test
+        fun `AgentProcess get() returns current process during action execution`() {
+            val dummyPlatformServices = dummyPlatformServices()
+            val blackboard = InMemoryBlackboard()
+            blackboard += UserInput("TestContext")
+
+            val agentProcess = SimpleAgentProcess(
+                id = "test-context",
+                agent = AgentProcessContextTestAgent,
+                processOptions = ProcessOptions(),
+                blackboard = blackboard,
+                platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
+                parentId = null,
+            )
+
+            val result = agentProcess.run()
+
+            assertEquals(AgentProcessStatusCode.COMPLETED, result.status)
+            val frog = blackboard.lastResult() as Frog
+            assertTrue(frog.name.contains("Context OK"))
+        }
+    }
 
     @Nested
     inner class Serialization {
@@ -137,6 +181,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = InMemoryBlackboard(),
                 platformServices = dummyPlatformServices(),
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             assertThrows<IOException> {
@@ -178,6 +223,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             val agentStatus = agentProcess.tick()
@@ -196,6 +242,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             val agentStatus = agentProcess.run()
@@ -270,6 +317,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             return agentProcess.run()
@@ -291,6 +339,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             val person = LocalPerson("John")
@@ -309,6 +358,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             val person = LocalPerson("John")
@@ -326,6 +376,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             val person = LocalPerson("John")
@@ -344,6 +395,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             val person = LocalPerson("John")
@@ -370,6 +422,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             assertEquals(0, agentProcess.toolsStats.toolsStats.size, "No tools called yet")
@@ -390,6 +443,7 @@ class SimpleAgentProcessTest {
                 processOptions = ProcessOptions(),
                 blackboard = blackboard,
                 platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
                 parentId = null,
             )
             assertEquals(AgentProcessStatusCode.NOT_STARTED, agentProcess.status)
@@ -406,6 +460,318 @@ class SimpleAgentProcessTest {
 
         }
 
+        @Test
+        fun `kill during stuck handling prevents replan loop`() {
+            val sua = SelfUnstickingAgent()
+            val agent = AgentMetadataReader().createAgentMetadata(sua) as Agent
+            val killingStuckHandler = StuckHandler { process ->
+                process.kill()
+                StuckHandlerResult(
+                    message = "Killed during stuck handling",
+                    handler = null,
+                    code = StuckHandlingResultCode.REPLAN,
+                    agentProcess = process,
+                )
+            }
+            val dummyPlatformServices = dummyPlatformServices()
+            val blackboard = InMemoryBlackboard()
+            val agentProcess = SimpleAgentProcess(
+                id = "test",
+                agent = agent.copy(stuckHandler = killingStuckHandler),
+                processOptions = ProcessOptions(),
+                blackboard = blackboard,
+                platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
+                parentId = null,
+            )
+            val result = agentProcess.run()
+            assertEquals(
+                AgentProcessStatusCode.KILLED,
+                result.status,
+                "Process should remain killed after stuck handling"
+            )
+        }
+
+    }
+
+    @Nested
+    inner class TerminateAgent {
+
+        /**
+         * Test subclass that exposes setStatus for testing different status scenarios.
+         */
+        private inner class TestableAgentProcess(
+            platformServices: com.embabel.agent.api.common.PlatformServices,
+        ) : SimpleAgentProcess(
+            id = "test-terminate",
+            agent = SimpleTestAgent,
+            processOptions = ProcessOptions(),
+            blackboard = InMemoryBlackboard(),
+            platformServices = platformServices,
+            plannerFactory = DefaultPlannerFactory,
+            parentId = null,
+        ) {
+            fun setStatusForTest(status: AgentProcessStatusCode) {
+                setStatus(status)
+            }
+        }
+
+        private fun createProcess(
+            status: AgentProcessStatusCode = AgentProcessStatusCode.NOT_STARTED,
+        ): TestableAgentProcess {
+            val dummyPlatformServices = dummyPlatformServices()
+            val process = TestableAgentProcess(dummyPlatformServices)
+            if (status != AgentProcessStatusCode.NOT_STARTED) {
+                process.setStatusForTest(status)
+            }
+            return process
+        }
+
+        @Test
+        fun `RUNNING status sets signal for deferred termination`() {
+            val process = createProcess(AgentProcessStatusCode.RUNNING)
+            process.terminateAgent("test reason")
+
+            // Should remain RUNNING (signal is deferred)
+            assertEquals(AgentProcessStatusCode.RUNNING, process.status)
+            // Signal should be set (checked via terminationRequest internal property)
+            assertEquals("test reason", process.terminationRequest?.reason)
+        }
+
+        @Test
+        fun `NOT_STARTED status sets signal for deferred termination`() {
+            val process = createProcess(AgentProcessStatusCode.NOT_STARTED)
+            process.terminateAgent("test reason")
+
+            // Should remain NOT_STARTED (signal is deferred)
+            assertEquals(AgentProcessStatusCode.NOT_STARTED, process.status)
+            assertEquals("test reason", process.terminationRequest?.reason)
+        }
+
+        @Test
+        fun `COMPLETED status sets TERMINATED immediately`() {
+            val process = createProcess(AgentProcessStatusCode.COMPLETED)
+            process.terminateAgent("test reason")
+
+            assertEquals(AgentProcessStatusCode.TERMINATED, process.status)
+        }
+
+        @Test
+        fun `STUCK status sets TERMINATED immediately`() {
+            val process = createProcess(AgentProcessStatusCode.STUCK)
+            process.terminateAgent("test reason")
+
+            assertEquals(AgentProcessStatusCode.TERMINATED, process.status)
+        }
+
+        @Test
+        fun `WAITING status sets TERMINATED immediately`() {
+            val process = createProcess(AgentProcessStatusCode.WAITING)
+            process.terminateAgent("test reason")
+
+            assertEquals(AgentProcessStatusCode.TERMINATED, process.status)
+        }
+
+        @Test
+        fun `PAUSED status sets TERMINATED immediately`() {
+            val process = createProcess(AgentProcessStatusCode.PAUSED)
+            process.terminateAgent("test reason")
+
+            assertEquals(AgentProcessStatusCode.TERMINATED, process.status)
+        }
+
+        @Test
+        fun `KILLED status is ignored`() {
+            val process = createProcess(AgentProcessStatusCode.KILLED)
+            process.terminateAgent("test reason")
+
+            // Should remain KILLED
+            assertEquals(AgentProcessStatusCode.KILLED, process.status)
+        }
+
+        @Test
+        fun `FAILED status is ignored`() {
+            val process = createProcess(AgentProcessStatusCode.FAILED)
+            process.terminateAgent("test reason")
+
+            // Should remain FAILED
+            assertEquals(AgentProcessStatusCode.FAILED, process.status)
+        }
+
+        @Test
+        fun `TERMINATED status is ignored`() {
+            val process = createProcess(AgentProcessStatusCode.TERMINATED)
+            process.terminateAgent("test reason")
+
+            // Should remain TERMINATED
+            assertEquals(AgentProcessStatusCode.TERMINATED, process.status)
+        }
+    }
+
+    @Nested
+    inner class ReplanRequestedExceptionHandling {
+
+        @Test
+        fun `ReplanRequestedException applies blackboard updates and triggers replanning`() {
+            val dummyPlatformServices = dummyPlatformServices()
+            val blackboard = InMemoryBlackboard()
+            blackboard += UserInput("TestUser")
+
+            val agentProcess = SimpleAgentProcess(
+                id = "test-replan",
+                agent = ReplanningAgent,
+                processOptions = ProcessOptions(),
+                blackboard = blackboard,
+                platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
+                parentId = null,
+            )
+
+            val result = agentProcess.run()
+
+            // Process should complete successfully after replanning
+            assertEquals(AgentProcessStatusCode.COMPLETED, result.status)
+
+            // Blackboard should have the routedTo update applied
+            assertEquals("alternate", blackboard["routedTo"])
+
+            // Final result should be a Frog with alternate path prefix
+            val frog = blackboard.lastResult() as Frog
+            assertEquals("Alternate: TestUser", frog.name)
+        }
+
+        @Test
+        fun `ReplanRequestedException handles multiple consecutive replans`() {
+            val dummyPlatformServices = dummyPlatformServices()
+            val blackboard = InMemoryBlackboard()
+            blackboard += UserInput("CountingUser")
+
+            val agentProcess = SimpleAgentProcess(
+                id = "test-multi-replan",
+                agent = MultiReplanAgent,
+                processOptions = ProcessOptions(),
+                blackboard = blackboard,
+                platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
+                parentId = null,
+            )
+
+            val result = agentProcess.run()
+
+            // Process should complete successfully after multiple replans
+            assertEquals(AgentProcessStatusCode.COMPLETED, result.status)
+
+            // Blackboard should have the replan count incremented
+            assertEquals(3, blackboard["replanCount"])
+
+            // Final result should be a Frog
+            val frog = blackboard.lastResult() as Frog
+            assertTrue(frog.name.contains("CountingUser"))
+            assertTrue(frog.name.contains("3 replans"))
+        }
+
+        @Test
+        fun `tick handles ReplanRequestedException and continues running`() {
+            val dummyPlatformServices = dummyPlatformServices()
+            val blackboard = InMemoryBlackboard()
+            blackboard += UserInput("TickUser")
+
+            val agentProcess = SimpleAgentProcess(
+                id = "test-tick-replan",
+                agent = ReplanningAgent,
+                processOptions = ProcessOptions(),
+                blackboard = blackboard,
+                platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
+                parentId = null,
+            )
+
+            // First tick should trigger replan and keep process running
+            val tickResult1 = agentProcess.tick()
+            assertEquals(AgentProcessStatusCode.RUNNING, tickResult1.status)
+            assertEquals("alternate", blackboard["routedTo"], "Blackboard should be updated after first tick")
+
+            // Subsequent ticks should progress and eventually complete
+            var finalResult = tickResult1
+            var maxTicks = 10
+            while (finalResult.status == AgentProcessStatusCode.RUNNING && maxTicks > 0) {
+                finalResult = agentProcess.tick()
+                maxTicks--
+            }
+
+            assertEquals(AgentProcessStatusCode.COMPLETED, finalResult.status)
+            val frog = blackboard.lastResult() as Frog
+            assertEquals("Alternate: TickUser", frog.name)
+        }
+
+        @Test
+        fun `replan blacklist prevents infinite loop by selecting alternate action`() {
+            val dummyPlatformServices = dummyPlatformServices()
+            val blackboard = InMemoryBlackboard()
+            blackboard += UserInput("BlacklistTest")
+
+            val agentProcess = SimpleAgentProcess(
+                id = "test-blacklist",
+                agent = BlacklistTestAgent,
+                processOptions = ProcessOptions(),
+                blackboard = blackboard,
+                platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
+                parentId = null,
+            )
+
+            val result = agentProcess.run()
+
+            // Process should complete successfully by using the alternate action
+            assertEquals(AgentProcessStatusCode.COMPLETED, result.status)
+
+            // The always_replans action should have run once and requested replan
+            assertEquals(1, blackboard["replanAttempts"])
+
+            // Final result should be from the completes_normally action (the fallback)
+            val frog = blackboard.lastResult() as Frog
+            assertTrue(
+                frog.name.contains("Completed via fallback"),
+                "Expected fallback action to complete, got: ${frog.name}"
+            )
+        }
+
+        @Test
+        fun `blacklist is cleared after successful planning allowing previously blacklisted action later`() {
+            val dummyPlatformServices = dummyPlatformServices()
+            val blackboard = InMemoryBlackboard()
+            blackboard += UserInput("ClearBlacklistTest")
+
+            val agentProcess = SimpleAgentProcess(
+                id = "test-clear-blacklist",
+                agent = ReplanningAgent,
+                processOptions = ProcessOptions(),
+                blackboard = blackboard,
+                platformServices = dummyPlatformServices,
+                plannerFactory = DefaultPlannerFactory,
+                parentId = null,
+            )
+
+            // First tick: routing_transform runs and requests replan
+            val tick1 = agentProcess.tick()
+            assertEquals(AgentProcessStatusCode.RUNNING, tick1.status)
+            assertEquals("alternate", blackboard["routedTo"])
+
+            // Second tick: routing_transform should run again (blacklist cleared after successful plan)
+            // because the blackboard state changed allowing it to proceed
+            val tick2 = agentProcess.tick()
+            assertEquals(AgentProcessStatusCode.RUNNING, tick2.status)
+
+            // Continue to completion
+            var result = tick2
+            var maxTicks = 10
+            while (result.status == AgentProcessStatusCode.RUNNING && maxTicks > 0) {
+                result = agentProcess.tick()
+                maxTicks--
+            }
+
+            assertEquals(AgentProcessStatusCode.COMPLETED, result.status)
+        }
     }
 
 }

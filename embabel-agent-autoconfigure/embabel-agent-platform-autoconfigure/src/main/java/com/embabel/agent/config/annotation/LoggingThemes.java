@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,6 +14,15 @@
  * limitations under the License.
  */
 package com.embabel.agent.config.annotation;
+
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "embabel.agent.logging")
+record LoggingPersonalityProperties(
+        String personality
+) {
+}
 
 /**
  * Well-known logging themes for Embabel Agent applications.
@@ -38,5 +47,15 @@ public class LoggingThemes {
      * <a href="https://www.imdb.com/title/tt0064177/">Colossus on IMDB</a>
      */
     public static final String COLOSSUS = "colossus";
+
+    /**
+     * loggingTheme value for Hitchhiker's Guide to the Galaxy themed logging messages.
+     */
+    public static final String HITCHHIKERS_GUIDE = "hitchhiker";
+
+    /**
+     * loggingTheme value for Monty Python themed logging messages.
+     */
+    public static final String MONTYPYTHON = "montypython";
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,33 @@
  */
 package com.embabel.agent.spi.support.springai
 
+import com.embabel.agent.api.event.AbstractAgentProcessEvent
+import com.embabel.agent.api.event.LlmRequestEvent
 import com.embabel.agent.core.AgentProcess
-import com.embabel.agent.event.AbstractAgentProcessEvent
-import com.embabel.agent.spi.LlmInteraction
-import com.embabel.common.ai.model.Llm
+import com.embabel.agent.core.support.LlmInteraction
+import com.embabel.common.ai.model.LlmMetadata
 import org.springframework.ai.chat.prompt.Prompt
 
 /**
- * Spring AI low level event
+ * Spring AI low level event: ChatModel call.
  */
 class ChatModelCallEvent<O> internal constructor(
     agentProcess: AgentProcess,
     val outputClass: Class<O>,
     val interaction: LlmInteraction,
-    val llm: Llm,
+    val llmMetadata: LlmMetadata,
     val springAiPrompt: Prompt,
 ) : AbstractAgentProcessEvent(agentProcess)
+
+/**
+ * Return a low level event showing Spring AI prompt details.
+ */
+fun <O> LlmRequestEvent<O>.chatModelCallEvent(springAiPrompt: Prompt): ChatModelCallEvent<O> {
+    return ChatModelCallEvent(
+        agentProcess = agentProcess,
+        outputClass = outputClass,
+        interaction = interaction,
+        llmMetadata = llmMetadata,
+        springAiPrompt = springAiPrompt,
+    )
+}

@@ -4,26 +4,28 @@
     <parent>
         <groupId>com.embabel.agent</groupId>
         <artifactId>embabel-agent-parent</artifactId>
-        <version>0.1.4-SNAPSHOT</version>
+        <version>0.4.0-SNAPSHOT</version>
     </parent>
     <artifactId>embabel-agent-test-support</artifactId>
     <packaging>pom</packaging>
     <name>Embabel Agent Test Support</name>
     <description>Embabel Agent Test Support for Agent API(s)</description>
+    <url>https://github.com/embabel/embabel-agent</url>
 
+    <scm>
+        <url>https://github.com/embabel/embabel-agent</url>
+        <connection>scm:git:https://github.com/embabel/embabel-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/embabel/embabel-agent.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
 
     <modules>
         <module>embabel-agent-test</module>
         <module>embabel-agent-test-internal</module>
+        <module>embabel-agent-test-common</module>
     </modules>
 
     <dependencies>
-        <!-- Main Dependencies -->
-        <dependency>
-            <groupId>com.embabel.agent</groupId>
-            <artifactId>embabel-agent-api</artifactId>
-        </dependency>
-
         <!-- Unit and Integration Testing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +19,11 @@ import com.embabel.agent.a2a.example.simple.horoscope.TestHoroscopeService
 import com.embabel.agent.api.annotation.AchievesGoal
 import com.embabel.agent.api.annotation.Action
 import com.embabel.agent.api.annotation.Agent
-import com.embabel.agent.api.annotation.fromForm
 import com.embabel.agent.api.common.OperationContext
 import com.embabel.agent.api.common.createObject
 import com.embabel.agent.api.common.createObjectIfPossible
 import com.embabel.agent.core.CoreToolGroups
+import com.embabel.agent.core.hitl.fromForm
 import com.embabel.agent.domain.io.UserInput
 import com.embabel.agent.domain.library.HasContent
 import com.embabel.agent.domain.library.Person
@@ -189,13 +189,14 @@ class TestStarNewsFinder(
      * @return A collection of relevant news stories with summaries and URLs
      */
     // toolGroups specifies tools that are required for this action to run
-    @Action(toolGroups = [CoreToolGroups.WEB, CoreToolGroups.BROWSER_AUTOMATION])
+    @Action
     internal fun findNewsStories(
         person: StarPerson,
         horoscope: Horoscope,
         context: OperationContext,
     ): RelevantNewsStories =
-        context.ai().withDefaultLlm() createObject (
+        context.ai().withDefaultLlm()
+            .withToolGroups(setOf(CoreToolGroups.WEB, CoreToolGroups.BROWSER_AUTOMATION)) createObject (
                 """
             ${person.name} is an astrology believer with the sign ${person.sign}.
             Their horoscope for today is:

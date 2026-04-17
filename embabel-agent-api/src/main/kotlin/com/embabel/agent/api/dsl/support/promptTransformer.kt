@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,18 +17,20 @@ package com.embabel.agent.api.dsl.support
 
 import com.embabel.agent.api.common.TransformationActionContext
 import com.embabel.agent.api.common.support.TransformationAction
+import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.core.ActionQos
 import com.embabel.agent.core.Condition
 import com.embabel.agent.core.IoBinding
 import com.embabel.agent.core.ToolGroupRequirement
 import com.embabel.common.ai.model.LlmOptions
 import com.embabel.common.ai.prompt.PromptContributor
-import com.embabel.common.core.types.ZeroToOne
-import org.springframework.ai.tool.ToolCallback
+import com.embabel.plan.CostComputation
+import org.jetbrains.annotations.ApiStatus
 
 /**
- * Supports AgentBuilder. Not fur direct use in user code.
+ * Supports AgentBuilder. Not for direct use in user code.
  */
+@ApiStatus.Internal
 fun <I, O : Any> promptTransformer(
     name: String,
     description: String = name,
@@ -38,17 +40,17 @@ fun <I, O : Any> promptTransformer(
     outputVarName: String = IoBinding.DEFAULT_BINDING,
     inputClass: Class<I>,
     outputClass: Class<O>,
-    cost: ZeroToOne = 0.0,
+    cost: CostComputation = { 0.0 },
     toolGroups: Set<ToolGroupRequirement> = emptySet(),
     qos: ActionQos = ActionQos(),
     referencedInputProperties: Set<String>? = null,
     llm: LlmOptions = LlmOptions(),
     promptContributors: List<PromptContributor> = emptyList(),
     canRerun: Boolean = false,
-    toolCallbacks: Collection<ToolCallback> = emptyList(),
+    tools: Collection<Tool> = emptyList(),
     prompt: (actionContext: TransformationActionContext<I, O>) -> String,
 ): TransformationAction<I, O> {
-    return TransformationAction<I, O>(
+    return TransformationAction(
         name = name,
         description = description,
         pre = pre.map { it.name },
@@ -67,9 +69,11 @@ fun <I, O : Any> promptTransformer(
             llm = llm,
             toolGroups = toolGroups,
             promptContributors = promptContributors,
-        ).createObject(
-            prompt = prompt(it),
-            outputClass = outputClass,
         )
+            .withTools(tools.toList())
+            .createObject(
+                prompt = prompt(it),
+                outputClass = outputClass,
+            )
     }
 }

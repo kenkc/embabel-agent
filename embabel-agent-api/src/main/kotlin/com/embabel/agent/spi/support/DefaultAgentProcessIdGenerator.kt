@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import com.embabel.agent.core.Agent
 import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.spi.AgentProcessIdGenerator
 import com.embabel.common.core.NameGenerator
-import com.embabel.agent.config.AgentPlatformProperties
+import com.embabel.agent.spi.config.spring.AgentPlatformProperties
 import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 
@@ -40,7 +40,10 @@ internal class DefaultAgentProcessIdGenerator(
     private val properties: DefaultProcessIdGeneratorProperties,
 ) : AgentProcessIdGenerator {
 
-    override fun createProcessId(agent: Agent, processOptions: ProcessOptions): String {
+    override fun createProcessId(
+        agent: Agent,
+        processOptions: ProcessOptions,
+    ): String {
         val agentName = if (properties.includeAgentName) {
             "${agent.name}-"
         } else {

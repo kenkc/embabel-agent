@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,14 +17,15 @@ package com.embabel.agent.api.common.autonomy
 
 import com.embabel.agent.core.AgentPlatform
 import com.embabel.agent.core.ProcessOptions
+import com.embabel.common.util.time
 import com.embabel.plan.Plan
-import com.embabel.plan.goap.GoapPlanner
-import com.embabel.plan.goap.GoapPlanningSystem
+import com.embabel.plan.common.condition.ConditionPlanner
+import com.embabel.plan.common.condition.ConditionPlanningSystem
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 @Service
-class DefaultPlanLister(
+internal class DefaultPlanLister(
     private val agentPlatform: AgentPlatform,
 ) : PlanLister {
 
@@ -46,16 +47,19 @@ class DefaultPlanLister(
             agent = uberAgent,
             bindings = bindings,
         )
-        val planner = dummyAgentProcess.planner as? GoapPlanner
+        val planner = dummyAgentProcess.planner as? ConditionPlanner
             ?: TODO("Only GoapPlanners are presently supported: found ${dummyAgentProcess.planner::class.qualifiedName}")
         val planningSystem = planningSystem()
-        val plans = planner.plansToGoals(
-            system = planningSystem,
-        )
+        val (plans, ms) = time {
+            planner.plansToGoals(
+                system = planningSystem,
+            )
+        }
         logger.info(
-            "Achievable plans given {} actions and {} goals from bindings {}: {}\n{}",
+            "Achievable plans given {} actions and {} goals in {}ms from bindings {} : {}\n{}",
             planningSystem.actions.size,
             planningSystem.goals.size,
+            ms,
             bindings,
             plans.joinToString("\n") { it.infoString(verbose = true, indent = 1) },
             planningSystem.infoString(verbose = true, indent = 1),
@@ -63,8 +67,8 @@ class DefaultPlanLister(
         return plans
     }
 
-    private fun planningSystem(): GoapPlanningSystem {
-        return GoapPlanningSystem(
+    private fun planningSystem(): ConditionPlanningSystem {
+        return ConditionPlanningSystem(
             actions = agentPlatform.actions.toSet(),
             goals = agentPlatform.goals,
         )

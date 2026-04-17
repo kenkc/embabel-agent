@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Embabel Software, Inc.
+ * Copyright 2024-2026 Embabel Pty Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,15 @@
  */
 package com.embabel.agent.config.models.docker
 
-import com.embabel.agent.common.RetryProperties
-import com.embabel.agent.config.models.DockerLocalModels.Companion.PROVIDER
-import com.embabel.agent.config.models.OpenAiChatOptionsConverter
+import com.embabel.agent.api.models.DockerLocalModels.Companion.PROVIDER
+import com.embabel.agent.openai.OpenAiChatOptionsConverter
+import com.embabel.agent.spi.common.RetryProperties
+import com.embabel.agent.spi.support.springai.SpringAiLlmService
+import com.embabel.common.ai.autoconfig.ProviderInitialization
+import com.embabel.common.ai.autoconfig.RegisteredModel
 import com.embabel.common.ai.model.*
 import com.embabel.common.util.ExcludeFromJacocoGeneratedReport
 import io.micrometer.observation.ObservationRegistry
-import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.ai.document.MetadataMode
 import org.springframework.ai.model.NoopApiKey
@@ -35,6 +37,7 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.MediaType
 import org.springframework.web.client.RestClient
@@ -99,7 +102,7 @@ class DockerLocalModelsConfig(
 
     private data class ModelResponse(
         val `object`: String,
-        val data: List<ModelDetails>
+        val data: List<ModelDetails>,
     )
 
     private data class ModelDetails(
@@ -107,7 +110,7 @@ class DockerLocalModelsConfig(
     )
 
     private data class Model(
-        val id: String
+        val id: String,
     )
 
     private fun loadModels(): List<Model> =
@@ -130,8 +133,8 @@ class DockerLocalModelsConfig(
         }
 
 
-    @PostConstruct
-    fun registerModels() {
+    @Bean
+    fun dockerLocalModelsInitializer(): ProviderInitialization {
         logger.info("Docker local models will be discovered at {}", dockerConnectionProperties.baseUrl)
 
         val models = loadModels()
@@ -140,26 +143,33 @@ class DockerLocalModelsConfig(
             models.joinToString("\n") { it.id })
         if (models.isEmpty()) {
             logger.warn("No Docker local models discovered. Check Docker server configuration.")
-            return
         }
 
-        models.forEach { model ->
-            try {
-                val beanName = "dockerModel-${model.id}"
-                val dockerModel = dockerModelOf(model)
+        val registeredLlms = buildList {
+            models.forEach { model ->
+                try {
+                    val beanName = "dockerModel-${model.id}"
+                    val dockerModel = dockerModelOf(model)
 
-                // Use registerSingleton with a more descriptive bean name
-                configurableBeanFactory.registerSingleton(beanName, dockerModel)
-                logger.debug(
-                    "Successfully registered Docker {} {} as bean {}",
-                    dockerModel.model.javaClass.simpleName,
-                    model.id,
-                    beanName,
-                )
-            } catch (e: Exception) {
-                logger.error("Failed to register Docker model {}", model.id, e)
+                    // Use registerSingleton with a more descriptive bean name
+                    configurableBeanFactory.registerSingleton(beanName, dockerModel)
+                    add(RegisteredModel(beanName = beanName, modelId = model.id))
+                    logger.debug(
+                        "Successfully registered Docker {} {} as bean {}",
+                        dockerModel.model!!.javaClass.simpleName,
+                        model.id,
+                        beanName,
+                    )
+                } catch (e: Exception) {
+                    logger.error("Failed to register Docker model {}", model.id, e)
+                }
             }
         }
+
+        return ProviderInitialization(
+            provider = PROVIDER,
+            registeredLlms = registeredLlms,
+        ).also { logger.info(it.summary()) }
     }
 
     /**
@@ -173,7 +183,7 @@ class DockerLocalModelsConfig(
         }
     }
 
-    private fun dockerEmbeddingServiceOf(model: Model): EmbeddingService {
+    private fun dockerEmbeddingServiceOf(model: Model): SpringAiEmbeddingService {
         val springEmbeddingModel = OpenAiEmbeddingModel(
             OpenAiApi.Builder()
                 .baseUrl(dockerConnectionProperties.baseUrl)
@@ -185,29 +195,35 @@ class DockerLocalModelsConfig(
                 .build(),
         )
 
-        return EmbeddingService(
+        return SpringAiEmbeddingService(
             name = model.id,
             model = springEmbeddingModel,
             provider = PROVIDER,
         )
     }
 
-    private fun dockerLlmOf(model: Model): Llm {
+    private fun dockerLlmOf(model: Model): SpringAiLlmService {
         val chatModel = OpenAiChatModel.builder()
             .openAiApi(
                 OpenAiApi.Builder()
                     .baseUrl(dockerConnectionProperties.baseUrl)
                     .apiKey(NoopApiKey())
-                    .restClientBuilder(RestClient.builder()
-                        .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP }))
-                    .webClientBuilder(WebClient.builder()
-                        .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP }))
+                    .restClientBuilder(
+                        RestClient.builder()
+                            .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+                    )
+                    .webClientBuilder(
+                        WebClient.builder()
+                            .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+                    )
                     .build()
             )
             .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
-            .toolCallingManager(ToolCallingManager.builder()
-                .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
-                    .build())
+            .toolCallingManager(
+                ToolCallingManager.builder()
+                    .observationRegistry(observationRegistry.getIfUnique { ObservationRegistry.NOOP })
+                    .build()
+            )
             .defaultOptions(
                 OpenAiChatOptions.builder()
                     .model(model.id)
@@ -215,9 +231,9 @@ class DockerLocalModelsConfig(
             )
             .retryTemplate(dockerRetryProperties.retryTemplate("docker-${model.id}"))
             .build()
-        return Llm(
+        return SpringAiLlmService(
             name = model.id,
-            model = chatModel,
+            chatModel = chatModel,
             provider = PROVIDER,
             optionsConverter = OpenAiChatOptionsConverter,
             knowledgeCutoffDate = null,
